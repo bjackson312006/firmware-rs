@@ -118,10 +118,10 @@ impl<'a, T: SpiBus, C: OutputPin, D: DelayNs, P, const N: usize, const NR: usize
 
             for _ in (1..=8).rev() {
                 if (remainder & 0x200u16) > 0 {
-                    remainder = remainder << 1;
-                    remainder = remainder ^ POLYNOMIAL;
+                    remainder <<= 1;
+                    remainder ^= POLYNOMIAL;
                 } else {
-                    remainder = remainder << 1;
+                    remainder <<= 1;
                 }
             }
         }
@@ -133,10 +133,10 @@ impl<'a, T: SpiBus, C: OutputPin, D: DelayNs, P, const N: usize, const NR: usize
         for _ in (1..=6).rev() {
             /* Try to divide the current data bit */
             if (remainder & 0x200u16) > 0 {
-                remainder = remainder << 1;
-                remainder = remainder ^ POLYNOMIAL;
+                remainder <<= 1;
+                remainder ^= POLYNOMIAL;
             } else {
-                remainder = remainder << 1;
+                remainder <<= 1;
             }
         }
 
@@ -171,7 +171,7 @@ impl<'a, T: SpiBus, C: OutputPin, D: DelayNs, P, const N: usize, const NR: usize
 
         self.cs_pin.set_low().map_err(AdbmsError::CSControlError)?;
         self.device
-            .write(&mut tx_buf)
+            .write(&tx_buf)
             .await
             .map_err(AdbmsError::CommunicationError)?;
 
@@ -246,15 +246,15 @@ impl<'a, T: SpiBus, C: OutputPin, D: DelayNs, P, const N: usize, const NR: usize
             let src_addr = (c - 1) * TX_SIZE;
             for cb in 0..TX_SIZE {
                 self.tx_buffer[buf_index] = data[((c - 1) * TX_SIZE) + cb];
-                buf_index = buf_index + 1;
+                buf_index += 1;
             }
             let data_pec = Self::pec10_calc::<TX_SIZE, false>(
                 data[src_addr..src_addr + TX_SIZE].try_into().unwrap(),
             );
             self.tx_buffer[buf_index] = (data_pec >> 8) as u8;
-            buf_index = buf_index + 1;
+            buf_index += 1;
             self.tx_buffer[buf_index] = data_pec as u8;
-            buf_index = buf_index + 1;
+            buf_index += 1;
         }
 
         self.wake_ic().await?;
@@ -293,8 +293,8 @@ impl<'a, T: SpiBus, C: OutputPin, D: DelayNs, P, const N: usize, const NR: usize
     ) -> Self {
         const {
             assert!(N > 0);
-            assert!(NR % RX_SIZE == 0 && NR != 0);
-            assert!(NT % TX_SIZE == 0 && NT != 0);
+            assert!(NR.is_multiple_of(RX_SIZE) && NR != 0);
+            assert!(NT.is_multiple_of(TX_SIZE) && NT != 0);
         }
         assert!(tx_buffer.len() >= 4 + (RX_SIZE * N));
         assert!(rx_buffer.len() >= RX_SIZE * N);

@@ -1,8 +1,0 @@
-[package]
-name = "lsm6dso-ner"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-arrayref = "0.3.8"
-embedded-hal-async.workspace = true
