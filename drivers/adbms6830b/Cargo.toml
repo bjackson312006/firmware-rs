@@ -8,3 +8,4 @@ embedded-hal-async.workspace = true
 embedded-hal.workspace = true
 bitfield-struct.workspace = true
 device-driver.workspace = true
+arbitrary-int.workspace = true
