@@ -3,3 +3,6 @@
 //! and such without doing any manual bit fiddling.
 
 pub mod commands;
+pub mod pec;
+pub mod registers;
+pub mod types;

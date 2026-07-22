@@ -2,13 +2,13 @@
 
 #![allow(dead_code)]
 
-use bitfield_struct::{bitfield, bitenum};
+use bitfield_struct::bitfield;
 
 /// CC[10:0] - Command Code. 11-bit field.
 /// 
 /// See Table 50 on page 57 of the datasheet.
 #[bitfield(u16)]
-struct CommandCode {
+pub struct CommandCode {
     /// CC[10:0]
     #[bits(11)]
     pub code: u16,
@@ -35,6 +35,34 @@ impl Command {
             inc,
             code: CommandCode(code),
         }
+    }
+
+    /// Returns the 11-bit code associated with this command.
+    pub const fn code(&self) -> CommandCode { self.code }
+
+    /// Returns the CC[10:8] portion of the command code.
+    pub const fn cmd0(&self) -> u8 {
+        let code: u16 = self.code().into_bits();
+        let cmd0: u8 = (code >> 8) as u8 & 0x07;
+        cmd0
+    }
+
+    /// Returns the CC[7:0] portion of the command code.
+    pub const fn cmd1(&self) -> u8 {
+        let code: u16 = self.code().into_bits();
+        let cmd1: u8 = (code & 0xFF) as u8;
+        cmd1
+    }
+
+    /// Returns whether or not the command counter increments for this command.
+    pub const fn increments(&self) -> bool { self.inc }
+
+    /// Returns this `Command` as a 4-byte command frame.
+    pub fn frame(&self) -> [u8; 4] {
+        let cmd0 = self.cmd0();
+        let cmd1 = self.cmd1();
+        let pec = super::pec::CommandPec::new(&[cmd0, cmd1]);
+        [cmd0, cmd1, pec.pec0(), pec.pec1()]
     }
 }
 
