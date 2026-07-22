@@ -2,4 +2,4 @@
 //! chip's registers and commands, basically taken straight from the datasheet and encoded into Rust. The full ADBMS6830B driver can use this interface to interact with registers
 //! and such without doing any manual bit fiddling.
 
-mod command;
+pub mod commands;
