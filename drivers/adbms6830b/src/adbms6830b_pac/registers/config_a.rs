@@ -1,6 +1,7 @@
 //! Register Layouts and Bit Descriptions for Configuration Register A. See Table 102 of the datasheet.
 
 use bitfield_struct::{bitfield, bitenum};
+use super::{Register, RegisterKind};
 
 /// Reference powered up (REFON). One-bit field.
 #[repr(u8)]
@@ -38,17 +39,50 @@ pub enum ComparisonThresholdVoltage {
     Mv25_05 = 0b110,
     /// 40.05 mV
     Mv40_05 = 0b111,
-
 }
 
 /// First register in Configuration Register Group A (CFGAR0). 1 byte. See Table 55 on page 61 of the datasheet.
 #[bitfield(u8)]
 pub struct ConfigA0 {
     #[bits(3)]
-    cth: ComparisonThresholdVoltage,
+    pub cth: ComparisonThresholdVoltage,
     #[bits(4)]
     _reserved: u8,
     #[bits(1)]
-    refon: ReferenceOn,
+    pub refon: ReferenceOn,
+}
+impl Register for ConfigA0 {
+    fn kind(&self) -> RegisterKind {
+        RegisterKind::ReadWrite
+    }
+}
+
+/// Second register in Configuration Register Group A (CFGAR1). 1 byte. See Table 55 on page 61 of the datasheet.
+#[bitfield(u8)]
+pub struct ConfigA1 {
+    /// Forces oscillator counter fast.
+    #[bits(1)]
+    pub force_oscillator_counter_fast: bool,
+    /// Forces oscillator counter slow.
+    #[bits(1)]
+    pub force_oscillator_counter_slow: bool,
+    /// Forces supply error detection.
+    #[bits(1)]
+    pub force_supply_error_detection: bool,
+    /// `true` selects supply OV and delta detection. `false` selects UV.
+    #[bits(1)]
+    pub ov_uv: bool,
+    /// Sets THSD.
+    #[bits(1)]
+    pub thsd: bool,
+    /// Forces nonvolatile memory (NVM) error detection (ED). Sets CED and SED.
+    #[bits(1)]
+    pub force_nvmed: bool,
+    /// Forces NVM multiple error detection (MED). Sets CMED and SMED.
+    #[bits(1)]
+    pub force_nvmmed: bool,
+    /// Forces TMODCHK.
+    #[bits(1)]
+    pub force_tomdchk: bool,
 }
 
