@@ -1,8 +1,7 @@
 //! Register structure declarations based on the ADBMS6830B datasheet.
 
 #![allow(dead_code)]
-
-pub mod config_a;
+#![allow(rustdoc::broken_intra_doc_links)]
 
 /// Defines the read/write type of a register.
 pub enum RegisterKind {
@@ -19,3 +18,5 @@ pub trait Register {
     /// Gets the type of register (i.e., whether it is read-only, read/write, etc.)
     fn kind(&self) -> RegisterKind;
 }
+
+pub mod config_a;

@@ -1,5 +1,5 @@
 [workspace]
-members = ["drivers/*", "platform/*"]
+members = ["drivers/*", "drivers/adbms6830b/adbms6830b_macros", "platform/*"]
 resolver = "3"
 
 [workspace.dependencies]

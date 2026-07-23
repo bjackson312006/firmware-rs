@@ -9,3 +9,5 @@ embedded-hal.workspace = true
 bitfield-struct.workspace = true
 device-driver.workspace = true
 arbitrary-int.workspace = true
+
+adbms6830b-macros = { path = "adbms6830b_macros" }
