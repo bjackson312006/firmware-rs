@@ -3,9 +3,11 @@
 #![allow(dead_code)]
 
 /// A calculated command PEC (CRC-15). See Table 41 of the datasheet.
+/// 
+/// This is something we send! We never recieve this.
 ///
 /// Wraps the doubled 16-bit remainder (the 15-bit CRC in bits `[15:1]` with a
-/// `0` in the LSB), so the two on-wire bytes are simply its high and low bytes.
+/// `0` in the LSB). The two bytes that get sent on the wire are simply its high and low bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CommandPec{ raw: u16 }
 
@@ -29,12 +31,12 @@ impl CommandPec {
 ///
 /// Wraps the raw 10-bit CRC value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct DataPec { raw: u16 }
+struct DataPec { raw: u16 }
 
 impl DataPec {
     /// Creates a new `DataPec`.
-    pub const fn new(is_rx: bool, data: &[u8]) -> Self {
-        Self { raw: pec10_calc(is_rx, data) }
+    pub const fn new(value: u16) -> Self {
+        Self { raw: value }
     }
 
     /// Data Packet Error Code Byte 0 (`PEC[9:8]`).
@@ -52,6 +54,79 @@ impl DataPec {
     pub const fn bits(&self) -> u16 { self.raw }
 }
 
+/// A data PEC for TX. This is something we calculate before transmitting. See Table 42 on page 53 of the datasheet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DataPecTx { inner: DataPec }
+impl DataPecTx {
+    /// Creates a new `DataPecTx`.
+    /// 
+    /// ### Prams
+    /// - `data`: The data payload you are about to transmit (i.e., a `ConfigA` instance). This PEC is calculated from that data.
+    pub const fn new(data: &[u8]) -> Self {
+        let calculated: u16 = pec10_calc(data, None);
+        Self { inner: DataPec::new(calculated) }
+    }
+
+    /// Data Packet Error Code Byte 0 (`PEC[9:8]`).
+    /// 
+    /// See Table 42 of the datasheet. `PEC[9:8]` is stored in the first two bits of PEC0.
+    pub const fn pec0(&self) -> u8 { self.inner.pec0() & 0b00000011 } // get first 2 bits
+
+    /// Data Packet Error Code Byte 1 (`PEC[7:0]`).
+    /// 
+    /// See Table 42 of the datasheet.
+    pub const fn pec1(&self) -> u8 { self.inner.pec1() }
+
+    /// The raw 10-bit CRC value backing this PEC.
+    pub const fn bits(&self) -> u16 { self.inner.bits() }
+}
+
+/// A data PEC for RX. This is something we construct when we recieve a frame. See Table 43 on page 53 of the datasheet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DataPecRx { inner: DataPec }
+impl DataPecRx {
+    /// Creates a `DataPecRx` from the two received PEC bytes (in wire order).
+    /// 
+    /// ### Pram
+    /// - `bytes[0]` = PEC0 (received first. carries `CCNT[5:0]` and `PEC[9:8]`)
+    /// - `bytes[1]` = PEC1 (`PEC[7:0]`)
+    ///
+    /// See Table 43 of the datasheet.
+    pub const fn from_bytes(bytes: [u8; 2]) -> Self {
+        let raw = ((bytes[0] as u16) << 8) | bytes[1] as u16;
+        Self { inner: DataPec::new(raw) }
+    }
+    
+    /// Checks whether or not this PEC matches what was expected based on the data.
+    /// If this is a valid PEC, this function will return `true`.
+    /// If this was an invalid PEC, this function will return `false`, indicating some
+    /// kind of communication error occured during reception.
+    /// 
+    /// ### Prams
+    /// - `data`: The data from the recieved response.
+    pub const fn verify(&self, data: &[u8]) -> bool {
+        let expected: u16 = pec10_calc(data, Some(self.ccnt()));
+        self.pec0() == (expected >> 8) as u8 & 0b11 && self.pec1() == expected as u8
+    }
+
+    /// Data Packet Error Code Byte 0 (`PEC[9:8]`).
+    /// 
+    /// See Table 43 of the datasheet. `PEC[9:8]` is stored in the first two bits of PEC0.
+    /// This does not contain the `CCNT[5:0]` bits (see `ccnt()` for that).
+    pub const fn pec0(&self) -> u8 { self.inner.pec0() & 0b00000011 } // get first 2 bits
+
+    /// Returns the CCNT[5:0] data included in a `DataPecRx`. See Table 43 of the datasheet.
+    pub const fn ccnt(&self) -> u8 { self.inner.pec0() >> 2 } // get last 6 bits
+
+    /// Data Packet Error Code Byte 1 (`PEC[7:0]`).
+    /// 
+    /// See Table 43 of the datasheet.
+    pub const fn pec1(&self) -> u8 { self.inner.pec1() }
+
+    /// The raw 10-bit CRC value backing this PEC.
+    pub const fn bits(&self) -> u16 { self.inner.bits() }
+}
+
 /// CRC-15 command PEC.
 const fn pec15_calc(data: &[u8]) -> u16 {
     let mut remainder: u16 = 16; // PEC seed
@@ -67,13 +142,14 @@ const fn pec15_calc(data: &[u8]) -> u16 {
 }
 
 /// CRC-10 data PEC (via bits). Produces identical results to `pec10_calc_table()`.
-///
-/// When `is_rx` is `true`, `data` must contain one extra trailing byte (the received command-counter
-/// byte), which is folded into the CRC (and masked with `0xFC`).
-const fn pec10_calc(is_rx: bool, data: &[u8]) -> u16 {
+/// 
+/// ### Prams
+/// - `data`: The data you want to use for the calculation.
+/// - `rx_ccnt`: If this is for RX, pass in the recieved CCNT[5:0] value from your frame. If this is for TX, pass in `None`.
+const fn pec10_calc(data: &[u8], rx_ccnt: Option<u8>) -> u16 {
     // x10 + x7 + x3 + x2 + x + 1 <- the CRC10 polynomial (100 1000 1111)
     const POLYNOMIAL: u16 = 0x8F;
-    let n = if is_rx { data.len() - 1 } else { data.len() };
+    let n = data.len();
     let mut remainder: u16 = 16; // PEC seed
 
     let mut byte_index = 0;
@@ -94,8 +170,8 @@ const fn pec10_calc(is_rx: bool, data: &[u8]) -> u16 {
     }
 
     // If the array is from a received buffer, add the command counter to the CRC.
-    if is_rx {
-        remainder ^= ((data[n] as u16) & 0xFC) << 2;
+    if let Some(command_counter) = rx_ccnt {
+        remainder ^= ((command_counter as u16) & 0x3F) << 4;
     }
 
     // Perform modulo-2 division, a bit at a time.
@@ -114,12 +190,13 @@ const fn pec10_calc(is_rx: bool, data: &[u8]) -> u16 {
 
 /// CRC-10 data PEC (table-based). Produces identical results to `pec10_calc()`.
 ///
-/// When `is_rx` is `true`, `data` must contain one extra trailing byte (the received command-counter
-/// byte), which is folded into the CRC (and masked with `0xFC`).
-const fn pec10_calc_table(is_rx: bool, data: &[u8]) -> u16 {
+/// ### Prams
+/// - `data`: The data you want to use for the calculation.
+/// - `rx_ccnt`: If this is for RX, pass in the recieved CCNT[5:0] value from your frame. If this is for TX, pass in `None`.
+const fn pec10_calc_table(data: &[u8], rx_ccnt: Option<u8>) -> u16 {
     // x10 + x7 + x3 + x2 + x + 1 <- the CRC10 polynomial (100 1000 1111)
     const POLYNOMIAL: u16 = 0x8F;
-    let n = if is_rx { data.len() - 1 } else { data.len() };
+    let n = data.len();
     let mut remainder: u16 = 16; // PEC seed
 
     let mut byte_index = 0;
@@ -131,8 +208,8 @@ const fn pec10_calc_table(is_rx: bool, data: &[u8]) -> u16 {
     }
 
     // If the array is from a received buffer, add the command counter to the CRC.
-    if is_rx {
-        remainder ^= ((data[n] as u16) & 0xFC) << 2;
+    if let Some(command_counter) = rx_ccnt {
+        remainder ^= ((command_counter as u16) & 0x3F) << 4;
     }
 
     // Perform modulo-2 division, a bit at a time.
@@ -153,16 +230,16 @@ const fn pec10_calc_table(is_rx: bool, data: &[u8]) -> u16 {
 
 // Seed-only behaviour (empty input) pins the seed and final divisions.
 const _: () = assert!(pec15_calc(&[]) == 0x0020);
-const _: () = assert!(pec10_calc(false, &[]) == 0x008F);
+const _: () = assert!(pec10_calc(&[], None) == 0x008F);
 
 // The bitwise and table-based CRC-10 must always agree (TX and RX paths).
 const _: () = assert!(
-    pec10_calc(false, &[0x00, 0x01, 0x02, 0x03, 0x04, 0x05])
-        == pec10_calc_table(false, &[0x00, 0x01, 0x02, 0x03, 0x04, 0x05])
+    pec10_calc(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05], None)
+        == pec10_calc_table(&[0x00, 0x01, 0x02, 0x03, 0x04, 0x05], None)
 );
 const _: () = assert!(
-    pec10_calc(true, &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x04])
-        == pec10_calc_table(true, &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x04])
+    pec10_calc(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66], Some(1))
+        == pec10_calc_table(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66], Some(1))
 );
 
 
