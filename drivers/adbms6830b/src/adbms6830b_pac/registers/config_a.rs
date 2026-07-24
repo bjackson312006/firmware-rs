@@ -299,11 +299,11 @@ pub struct ConfigA {
     pub cfgar5: ConfigA5,
 }
 
-/// A complete 12-byte `WRCFGA` frame for a single device: command + command PEC, the six data
-/// bytes (CFGAR0..CFGAR5), and the data PEC.
-///
-/// Construct with [`ConfigAWriteFrame::new`]; every PEC byte is computed for you. The resulting
-/// bytes are ready to clock out over SPI.
+/// A complete protocol frame for a `ConfigA` write command.
+/// 
+/// This frame contains your `ConfigA` data, plus an automatically-calculated command frame header and
+/// data PEC. This frame can be constructed via `ConfigAWriteFrame::new()`, and can be serialized into bytes (for
+/// sending) via `to_bytes()`.
 #[derive(Clone, Copy, Debug)]
 pub struct ConfigAWriteFrame {
     command: CommandFrame,
@@ -312,15 +312,17 @@ pub struct ConfigAWriteFrame {
 }
 
 impl ConfigAWriteFrame {
-    /// Builds a `WRCFGA` frame for the given configuration, computing both the command PEC and the
-    /// data PEC.
-    pub const fn new(config: ConfigA) -> Self {
+    /// Builds a `ConfigAWriteFrame`.
+    /// 
+    /// ### Parameters
+    /// - `data`: The data you want to write to this register group.
+    pub const fn new(data: ConfigA) -> Self {
         let command = commands::config::wrcfga().frame();
-        let data_pec = DataPecTx::new(&config.to_bytes());
-        Self { command, data: config, data_pec }
+        let data_pec = DataPecTx::new(&data.to_bytes());
+        Self { command, data, data_pec }
     }
 
-    /// Serializes the frame into its 12 wire bytes: command (4) + data (6) + data PEC (2).
+    /// Serializes the frame into bytes, for sending.
     pub const fn to_bytes(self) -> [u8; core::mem::size_of::<Self>()] {
         let command = self.command.to_bytes();
         let data = self.data.to_bytes();
@@ -334,30 +336,32 @@ impl ConfigAWriteFrame {
     /// The command portion of this frame.
     pub const fn command(&self) -> CommandFrame { self.command }
 
-    /// The configuration data carried by this frame.
+    /// The data carried by this frame.
     pub const fn data(&self) -> ConfigA { self.data }
 
-    /// The data PEC computed over the configuration data.
+    /// The data PEC computed over the provided data.
     pub const fn data_pec(&self) -> DataPecTx { self.data_pec }
 }
 
-/// A 4-byte `RDCFGA` request: the read command plus its command PEC.
-///
-/// Construct with [`ConfigAReadRequest::new`]; the command PEC is computed for you. Clock these
-/// bytes out, then clock in 8 bytes per device and parse them with
-/// [`ConfigAReadResponse::from_bytes`].
+/// A complete protocol frame for a `ConfigA` read request.
+/// 
+/// This frame can be transmitted to request a read of this register group. The received data can be read in
+/// as a `ConfigAReadResponse`.
+/// 
+/// This frame can be constructed via `ConfigAReadRequest::new()`, and can be serialized into bytes (for 
+/// sending) via `to_bytes()`.
 #[derive(Clone, Copy, Debug)]
 pub struct ConfigAReadRequest {
     command: CommandFrame,
 }
 
 impl ConfigAReadRequest {
-    /// Builds the `RDCFGA` request frame, computing its command PEC.
+    /// Builds a `ConfigAReadRequest`.
     pub const fn new() -> Self {
         Self { command: commands::config::rdcfga().frame() }
     }
 
-    /// Serializes the request into its 4 wire bytes: `[CMD0, CMD1, PEC0, PEC1]`.
+    /// Serializes the frame into bytes, for sending.
     pub const fn to_bytes(self) -> [u8; 4] {
         self.command.to_bytes()
     }
@@ -370,24 +374,26 @@ impl Default for ConfigAReadRequest {
     fn default() -> Self { Self::new() }
 }
 
-/// The 8 bytes clocked in from one device in response to `RDCFGA`: the six data bytes
-/// (CFGAR0..CFGAR5) followed by the two data PEC bytes.
-///
-/// Construct with [`ConfigAReadResponse::from_bytes`], which verifies the data PEC and returns
-/// `None` if the check fails (indicating a communication error during reception).
+/// A complete protocol frame for a `ConfigA` read response.
+/// 
+/// This frame can be constructed from the bytes you receive after sending a `ConfigAReadRequest`.
+/// 
+/// This frame can be constructed via `ConfigAReadResponse::from_bytes(bytes)`, where `bytes` are the bytes received
+/// from the device following the read request.
 #[derive(Clone, Copy, Debug)]
 pub struct ConfigAReadResponse {
-    config: ConfigA,
+    data: ConfigA,
     pec: pec::DataPecRx,
 }
 
 impl ConfigAReadResponse {
-    /// Parses the 8 bytes clocked in from a device, verifying the data PEC.
+    /// Parses received bytes and converts them into a `ConfigAReadResponse`.
     ///
-    /// Returns `None` if the PEC check fails.
-    ///
-    /// - `bytes[0..6]`: the CFGAR0..CFGAR5 data bytes.
-    /// - `bytes[6..8]`: the received data PEC (PEC0, then PEC1).
+    /// ### Returns
+    /// - `Some(ConfigAReadResponse)`, if the provided `bytes` are valid. This means your read was successful, and the register
+    /// group data can be read via `data()`.
+    /// - `None`, if the PEC check fails. This typically indicates that there was some kind of error during
+    /// reading or transmitting the response. For more info, see the `DATA PEC` section on page 53 of the datasheet.
     pub const fn from_bytes(bytes: [u8; 8]) -> Option<Self> {
         let data = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]];
         let pec = pec::DataPecRx::from_bytes([bytes[6], bytes[7]]);
@@ -395,13 +401,13 @@ impl ConfigAReadResponse {
             return None;
         }
         Some(Self {
-            config: ConfigA::from_bytes(data),
+            data: ConfigA::from_bytes(data),
             pec,
         })
     }
 
-    /// The decoded configuration register group.
-    pub const fn config(&self) -> ConfigA { self.config }
+    /// The data carried by this frame.
+    pub const fn data(&self) -> ConfigA { self.data }
 
     /// The device's command counter (`CCNT[5:0]`) reported alongside this response.
     pub const fn command_counter(&self) -> u8 { self.pec.ccnt() }
