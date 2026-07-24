@@ -16,45 +16,58 @@ use super::super::commands;
 pub mod types {
     use super::{bitenum, bitfield, BitfieldEnumDefault};
 
-    /// Max value of the `microvolts` input. Above this, the computed VUV/VOV code would exceed the
-    /// 12-bit register field (max VUV/VOV = 0xFFF = 4095).
-    /// this is 11,328,000 uV, or around 11.328 V (maps to VUV/VOV = 4095).
-    const MAX_MICROVOLTS: u32 = 11_328_000;
+    /// Microvolts per VUV/VOV code increment.
+    const LSB_MICROVOLTS: i32 = 2400;
+    /// The offset of the threshold formula (+1.5 V).
+    const OFFSET_MICROVOLTS: i32 = 1_500_000;
 
-    /// Min value of the `microvolts` input. Below this, the formula would underflow (VUV/VOV < 0).
-    /// this is 1,500,000 uV, or around 1.5 V (maps to VUV/VOV = 0).
-    const MIN_MICROVOLTS: u32 = 1_500_000;
+    /// Max threshold the register can represent in microvolts.
+    /// This is around +6,412,800 uV / +6.4128 V.
+    const MAX_MICROVOLTS: i32 = 6_412_800;
 
-    /// Takes in a desired undervoltage threshold in microvolts, and returns a VUV/VOV value.
+    /// Min threshold the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
+    const MIN_MICROVOLTS: i32 = -3_415_200;
+
+    /// Takes in a desired UV/OV threshold in microvolts, and returns the raw 12-bit VUV/VOV code.
     /// 
     /// This is based on the equation from the datasheet:
-    /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V.
-    /// - Cell undervoltage threshold is in Volts
-    /// - VUV/VOV is unitless
+    /// Cell threshold = VUV x 16 x 150uV + 1.5V.
+    /// - The threshold is in Volts.
+    /// - VUV/VOV is a signed 12-bit (two's complement) code that maps to a threshold voltage.
     /// 
-    /// The inverse is:
-    /// VUV(x) = (1250/3)x - 625
-    /// - `x` is the desired threshold in Volts
+    /// The inverse (with `x` in microvolts) is:
+    /// VUV(x) = round((x - 1_500_000) / 2400)
     /// 
-    /// With `x` in microvolts the function becomes:
-    /// VUV(x) = x/2400 - 625
-    /// ^^ so thats what we're gonna use
-    /// 
-    /// This will return none if the microvolts input is too low or too high.
-    const fn vuv_vov_from_microvolts(microvolts: u32) -> Option<u16> {
-        if (microvolts > MAX_MICROVOLTS) || (microvolts < MIN_MICROVOLTS) { return None; }
-        
-        let result = (microvolts as u32)/2400 - 625;
+    /// This will return `None` if the microvolts input is outside the representable range.
+    const fn vuv_vov_from_microvolts(microvolts: i32) -> Option<u16> {
+        if microvolts < MIN_MICROVOLTS || microvolts > MAX_MICROVOLTS { return None; }
 
-        Some(result as u16)
+        let numerator = microvolts - OFFSET_MICROVOLTS;
+        // Round to the nearest code, symmetric about zero.
+        let code = if numerator >= 0 {
+            (numerator + LSB_MICROVOLTS / 2) / LSB_MICROVOLTS
+        } else {
+            (numerator - LSB_MICROVOLTS / 2) / LSB_MICROVOLTS
+        };
+
+        // Store the low 12 bits of the two's complement representation.
+        Some((code as i16 as u16) & 0x0FFF)
     }
 
-    /// Undervoltage threshold/comparison voltage (VUV). 12-bit field. Default is 0x800 (around 6,415,200 uV or 6.415 V).
+    /// Converts a raw 12-bit two's complement VUV/VOV code back into a threshold in microvolts.
+    const fn vuv_vov_to_microvolts(code: u16) -> i32 {
+        let signed = ((code << 4) as i16) >> 4; // turn the raw code into a signed i16
+        signed as i32 * LSB_MICROVOLTS + OFFSET_MICROVOLTS
+    }
+
+    /// Undervoltage threshold/comparison voltage (VUV). Signed 12-bit field. Default is for VUV is 0x800 (corresponding to 3,415,200 uV / -3.4152 V).
     /// 
     /// This type provides the `from_microvolts()` function to construct a `UndervoltageThreshold` based on a desired
     /// undervoltage threshold in uV. If you want to construct the raw VUV[11:0] field value directly, use `with_value()`.
     /// 
-    /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V
+    /// /// This type also provides the `as_microvolts()` function to convert an `UndervoltageThreshold` into microvolts (could be useful on reads).
+    /// 
+    /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V (VUV is signed two's complement).
     #[bitfield(u16)]
     pub struct UndervoltageThreshold {
         /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. Corresponds to `VUV[11:0]`.
@@ -63,54 +76,66 @@ pub mod types {
     }
     impl UndervoltageThreshold { 
         pub const DEFAULT: Self = Self::new();
-        pub const MAX_MICROVOLTS: u32 = MAX_MICROVOLTS;
-        pub const MIN_MICROVOLTS: u32 = MIN_MICROVOLTS;
+        pub const MAX_MICROVOLTS: i32 = MAX_MICROVOLTS;
+        pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
 
         /// Creates a new `UndervoltageThreshold` from a desired threshold voltage.
         /// 
         /// ### Parameters
-        /// - `microvolts`: Desired undervoltage threshold, in uV.
+        /// - `microvolts`: Desired undervoltage threshold, in uV. May be negative.
         /// 
-        /// This function will return `None` if your input exceeds `MAX_MICROVOLTS` (11,328,000 uV/~11.328 V) or
-        /// `MIN_MICROVOLTS` (1,500,000 uV/~1.5 V).
-        pub const fn from_microvolts(microvolts: u32) -> Option<Self> {
+        /// This function will return `None` if your input is outside the `MIN_MICROVOLTS` (-3,415,200 uV/~-3.4152 V)
+        /// to `MAX_MICROVOLTS` (6,412,800 uV/~6.4128 V) range.
+        pub const fn from_microvolts(microvolts: i32) -> Option<Self> {
             match vuv_vov_from_microvolts(microvolts) {
                 Some(value) => Some(Self::new().with_value(value)),
                 None => None,
             }
         }
+
+        /// Returns the undervoltage threshold this setting represents, in microvolts (may be negative).
+        pub const fn as_microvolts(&self) -> i32 {
+            vuv_vov_to_microvolts(self.value())
+        }
     }
 
-    /// Overvoltage threshold/comparison voltage (VOV). 12-bit field. Default is 0x7FF (around 6,412,800 uV or 6.4128 V).
+    /// Overvoltage threshold/comparison voltage (VOV). Signed 12-bit field. Default for VOV is 0x7FF (corresponding to 6,412,800 uV / 6.4128 V).
     /// 
     /// This type provides the `from_microvolts()` function to construct a `OvervoltageThreshold` based on a desired
     /// overvoltage threshold in uV. If you want to construct the raw VOV[11:0] field value directly, use `with_value()`.
     /// 
-    /// Note: Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 
+    /// This type also provides the `as_microvolts()` function to convert an `OvervoltageThreshold` into microvolts (could be useful on reads).
+    /// 
+    /// Note: Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V (VOV is signed two's complement).
     #[bitfield(u16)]
     pub struct OvervoltageThreshold {
-        /// Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. Corresponds to `VOV[11:0]`.
+        /// Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V. Corresponds to `VOV[11:0]`.
         #[bits(12, default = 0x7FF)]     pub value: u16,
         #[bits(4, default = 0)]         _reserved: u8,
     }
     impl OvervoltageThreshold { 
         pub const DEFAULT: Self = Self::new(); 
 
-        pub const MAX_MICROVOLTS: u32 = MAX_MICROVOLTS;
-        pub const MIN_MICROVOLTS: u32 = MIN_MICROVOLTS;
+        pub const MAX_MICROVOLTS: i32 = MAX_MICROVOLTS;
+        pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
 
         /// Creates a new `OvervoltageThreshold` from a desired threshold voltage.
         /// 
         /// ### Parameters
-        /// - `microvolts`: Desired overvoltage threshold, in uV.
+        /// - `microvolts`: Desired overvoltage threshold, in uV. May be negative.
         /// 
-        /// This function will return `None` if your input exceeds `MAX_MICROVOLTS` (11,328,000 uV/~11.328 V) or
-        /// `MIN_MICROVOLTS` (1,500,000 uV/~1.5 V).
-        pub const fn from_microvolts(microvolts: u32) -> Option<Self> {
+        /// This function will return `None` if your input is outside the `MIN_MICROVOLTS` (-3,415,200 uV/~-3.4152 V)
+        /// to `MAX_MICROVOLTS` (6,412,800 uV/~6.4128 V) range.
+        pub const fn from_microvolts(microvolts: i32) -> Option<Self> {
             match vuv_vov_from_microvolts(microvolts) {
                 Some(value) => Some(Self::new().with_value(value)),
                 None => None,
             }
+        }
+
+        /// Returns the overvoltage threshold this setting represents, in microvolts (may be negative).
+        pub const fn as_microvolts(&self) -> i32 {
+            vuv_vov_to_microvolts(self.value())
         }
     }
 
