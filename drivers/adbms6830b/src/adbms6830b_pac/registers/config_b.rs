@@ -16,27 +16,103 @@ use super::super::commands;
 pub mod types {
     use super::{bitenum, bitfield, BitfieldEnumDefault};
 
-    /// UV comparison voltage (VUV). 12-bit field. Default is 0x800.
+    /// Max value of the `microvolts` input. Above this, the computed VUV/VOV code would exceed the
+    /// 12-bit register field (max VUV/VOV = 0xFFF = 4095).
+    /// this is 11,328,000 uV, or around 11.328 V (maps to VUV/VOV = 4095).
+    const MAX_MICROVOLTS: u32 = 11_328_000;
+
+    /// Min value of the `microvolts` input. Below this, the formula would underflow (VUV/VOV < 0).
+    /// this is 1,500,000 uV, or around 1.5 V (maps to VUV/VOV = 0).
+    const MIN_MICROVOLTS: u32 = 1_500_000;
+
+    /// Takes in a desired undervoltage threshold in microvolts, and returns a VUV/VOV value.
     /// 
-    /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V
+    /// This is based on the equation from the datasheet:
+    /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V.
+    /// - Cell undervoltage threshold is in Volts
+    /// - VUV/VOV is unitless
+    /// 
+    /// The inverse is:
+    /// VUV(x) = (1250/3)x - 625
+    /// - `x` is the desired threshold in Volts
+    /// 
+    /// With `x` in microvolts the function becomes:
+    /// VUV(x) = x/2400 - 625
+    /// ^^ so thats what we're gonna use
+    /// 
+    /// This will return none if the microvolts input is too low or too high.
+    const fn vuv_vov_from_microvolts(microvolts: u32) -> Option<u16> {
+        if (microvolts > MAX_MICROVOLTS) || (microvolts < MIN_MICROVOLTS) { return None; }
+        
+        let result = (microvolts as u32)/2400 - 625;
+
+        Some(result as u16)
+    }
+
+    /// Undervoltage threshold/comparison voltage (VUV). 12-bit field. Default is 0x800 (around 6,415,200 uV or 6.415 V).
+    /// 
+    /// This type provides the `from_microvolts()` function to construct a `UndervoltageThreshold` based on a desired
+    /// undervoltage threshold in uV. If you want to construct the raw VUV[11:0] field value directly, use `with_value()`.
+    /// 
+    /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V
     #[bitfield(u16)]
-    pub struct UvComparisonVoltage {
+    pub struct UndervoltageThreshold {
         /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. Corresponds to `VUV[11:0]`.
         #[bits(12, default = 0x800)]    pub value: u16,
         #[bits(4, default = 0)]         _reserved: u8,
     }
-    impl UvComparisonVoltage {  pub const DEFAULT: Self = Self::new(); }
+    impl UndervoltageThreshold { 
+        pub const DEFAULT: Self = Self::new();
+        pub const MAX_MICROVOLTS: u32 = MAX_MICROVOLTS;
+        pub const MIN_MICROVOLTS: u32 = MIN_MICROVOLTS;
 
-    /// OV comparison voltage (VOV). 12-bit field. Default is 0x7FF.
+        /// Creates a new `UndervoltageThreshold` from a desired threshold voltage.
+        /// 
+        /// ### Parameters
+        /// - `microvolts`: Desired undervoltage threshold, in uV.
+        /// 
+        /// This function will return `None` if your input exceeds `MAX_MICROVOLTS` (11,328,000 uV/~11.328 V) or
+        /// `MIN_MICROVOLTS` (1,500,000 uV/~1.5 V).
+        pub const fn from_microvolts(microvolts: u32) -> Option<Self> {
+            match vuv_vov_from_microvolts(microvolts) {
+                Some(value) => Some(Self::new().with_value(value)),
+                None => None,
+            }
+        }
+    }
+
+    /// Overvoltage threshold/comparison voltage (VOV). 12-bit field. Default is 0x7FF (around 6,412,800 uV or 6.4128 V).
     /// 
-    /// Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 
+    /// This type provides the `from_microvolts()` function to construct a `OvervoltageThreshold` based on a desired
+    /// overvoltage threshold in uV. If you want to construct the raw VOV[11:0] field value directly, use `with_value()`.
+    /// 
+    /// Note: Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 
     #[bitfield(u16)]
-    pub struct OvComparisonVoltage {
+    pub struct OvervoltageThreshold {
         /// Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. Corresponds to `VOV[11:0]`.
         #[bits(12, default = 0x7FF)]     pub value: u16,
         #[bits(4, default = 0)]         _reserved: u8,
     }
-    impl OvComparisonVoltage { pub const DEFAULT: Self = Self::new(); }
+    impl OvervoltageThreshold { 
+        pub const DEFAULT: Self = Self::new(); 
+
+        pub const MAX_MICROVOLTS: u32 = MAX_MICROVOLTS;
+        pub const MIN_MICROVOLTS: u32 = MIN_MICROVOLTS;
+
+        /// Creates a new `OvervoltageThreshold` from a desired threshold voltage.
+        /// 
+        /// ### Parameters
+        /// - `microvolts`: Desired overvoltage threshold, in uV.
+        /// 
+        /// This function will return `None` if your input exceeds `MAX_MICROVOLTS` (11,328,000 uV/~11.328 V) or
+        /// `MIN_MICROVOLTS` (1,500,000 uV/~1.5 V).
+        pub const fn from_microvolts(microvolts: u32) -> Option<Self> {
+            match vuv_vov_from_microvolts(microvolts) {
+                Some(value) => Some(Self::new().with_value(value)),
+                None => None,
+            }
+        }
+    }
 
     /// Lets you enable/disable the discharge timer monitor (DTMEN). One-bit field.
     #[repr(u8)]
@@ -118,10 +194,10 @@ pub mod types {
 )]
 #[bitfield(u64)]
 pub struct ConfigB {
-    /// UV comparison voltage (VUV). Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. 12-bit field. Corresponds to `VUV[11:0]`.
-    #[bits(12, default = types::UvComparisonVoltage::DEFAULT)]  pub vuv: types::UvComparisonVoltage,
-    /// OV comparison voltage (VOV). Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 12-bit field. Corresponds to `VOV[11:0]`.
-    #[bits(12, default = types::OvComparisonVoltage::DEFAULT)]  pub vov: types::OvComparisonVoltage,
+    /// UV threshold/comparison voltage (VUV). Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. 12-bit field. Corresponds to `VUV[11:0]`.
+    #[bits(12, default = types::UndervoltageThreshold::DEFAULT)]  pub vuv: types::UndervoltageThreshold,
+    /// OV threshold/comparison voltage (VOV). Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 12-bit field. Corresponds to `VOV[11:0]`.
+    #[bits(12, default = types::OvervoltageThreshold::DEFAULT)]  pub vov: types::OvervoltageThreshold,
     /// Status of the discharge timer. Corresponds to `DCTO[5:0]`.
     #[bits(6, default = types::DischargeTimerStatus::DEFAULT)]  pub dcto: types::DischargeTimerStatus,
     /// Range of the discharge timer.
