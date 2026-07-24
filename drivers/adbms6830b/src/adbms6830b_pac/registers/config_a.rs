@@ -227,41 +227,41 @@ pub struct ConfigA1 {
 pub struct ConfigA2 {
     #[bits(3, default = 0)]     _reserved: u8,
     /// Open wire soak times, for AUX commands.
-    #[bits(3, default = types::OpenWireSoakTimeMultiplier::DEFAULT)]     owa: types::OpenWireSoakTimeMultiplier,
+    #[bits(3, default = types::OpenWireSoakTimeMultiplier::DEFAULT)]     pub owa: types::OpenWireSoakTimeMultiplier,
     /// Soak time range.
-    #[bits(1, default = types::SoakTimeRange::DEFAULT)]                  owrng: types::SoakTimeRange,
+    #[bits(1, default = types::SoakTimeRange::DEFAULT)]                  pub owrng: types::SoakTimeRange,
     /// Soak time enabled/disabled.
-    #[bits(1, default = types::SoakTimeOn::DEFAULT)]                     soakon: types::SoakTimeOn,
+    #[bits(1, default = types::SoakTimeOn::DEFAULT)]                     pub soakon: types::SoakTimeOn,
 }
 
 /// CFGAR3 register. Fourth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
 #[bitfield(u8)]
 pub struct ConfigA3 {
     /// Pull-up/pull-down config for GPIO1.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio1: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio1: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO2.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio2: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio2: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO3.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio3: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio3: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO4.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio4: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio4: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO5.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio5: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio5: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO6.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio6: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio6: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO7.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio7: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio7: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO8.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio8: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio8: types::GpioxPullDownConfig,
 }
 
 /// CFGAR4 register. Fifth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
 #[bitfield(u8)]
 pub struct ConfigA4 {
     /// Pull-up/pull-down config for GPIO9.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio9: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio9: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO10.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     gpio10: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio10: types::GpioxPullDownConfig,
     #[bits(6, default = 0)]     _reserved: u8,
 }
 
@@ -269,13 +269,13 @@ pub struct ConfigA4 {
 #[bitfield(u8)]
 pub struct ConfigA5 {
     /// Infinite Impulse Response (IIR) filter configuration.
-    #[bits(3, default = types::IirFilterConfig::DEFAULT)]     fc: types::IirFilterConfig,
+    #[bits(3, default = types::IirFilterConfig::DEFAULT)]     pub fc: types::IirFilterConfig,
     /// Communication Break configuration.
-    #[bits(1, default = types::CommunicationBreak::DEFAULT)]  comm_bk: types::CommunicationBreak,
+    #[bits(1, default = types::CommunicationBreak::DEFAULT)]  pub comm_bk: types::CommunicationBreak,
     /// Mute status configuration.
-    #[bits(1, default = types::MuteStatus::DEFAULT)]          mute_st: types::MuteStatus,
+    #[bits(1, default = types::MuteStatus::DEFAULT)]          pub mute_st: types::MuteStatus,
     /// Snapshot status configuration.
-    #[bits(1, default = types::SnapshotStatus::DEFAULT)]      snap_st: types::SnapshotStatus,
+    #[bits(1, default = types::SnapshotStatus::DEFAULT)]      pub snap_st: types::SnapshotStatus,
     #[bits(2, default = 0)]                                   _reserved: u8,
 }
 

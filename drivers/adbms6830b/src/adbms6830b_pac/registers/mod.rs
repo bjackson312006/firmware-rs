@@ -23,3 +23,4 @@ pub trait RegisterGroup {
 }
 
 pub mod config_a;
+pub mod config_b;
