@@ -191,19 +191,24 @@ pub mod types {
     }
 }
 
-/// CFGAR0 register. First byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA0 {
+/// Configuration Register Group A (CFGA). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// See Table 55 on page 61 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = Some(commands::config::wrcfga().frame()),
+    read = commands::config::rdcfga().frame(),
+)]
+#[bitfield(u64)]
+pub struct ConfigA {
+    // CFGAR0! first byte of the register group.
     /// C-ADC vs. S-ADC comparison voltage theshold. Three-bit field.
     #[bits(3, default = types::ComparisonThresholdVoltage::DEFAULT)]  pub cth: types::ComparisonThresholdVoltage,
-    #[bits(4, default = 0)]                                           _reserved: u8,
+    #[bits(4, default = 0)]                                           _reserved0: u8,
     /// Reference powered up (REFON). One-bit field.
     #[bits(1, default = types::ReferenceOn::DEFAULT)]                 pub refon: types::ReferenceOn,
-}
 
-/// CFGAR1 register. Second byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA1 {
+    // CFGAR1! second byte of the register group.
     /// Forces oscillator counter fast.
     #[bits(1, default = false)]  pub force_oscillator_counter_fast: bool,
     /// Forces oscillator counter slow.
@@ -220,23 +225,17 @@ pub struct ConfigA1 {
     #[bits(1, default = false)]  pub force_nvmmed: bool,
     /// Forces TMODCHK.
     #[bits(1, default = false)]  pub force_tomdchk: bool,
-}
 
-/// CFGAR2 register. Third byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA2 {
-    #[bits(3, default = 0)]     _reserved: u8,
+    // CFGAR2! third byte of the register group.
+    #[bits(3, default = 0)]     _reserved1: u8,
     /// Open wire soak times, for AUX commands.
     #[bits(3, default = types::OpenWireSoakTimeMultiplier::DEFAULT)]     pub owa: types::OpenWireSoakTimeMultiplier,
     /// Soak time range.
     #[bits(1, default = types::SoakTimeRange::DEFAULT)]                  pub owrng: types::SoakTimeRange,
     /// Soak time enabled/disabled.
     #[bits(1, default = types::SoakTimeOn::DEFAULT)]                     pub soakon: types::SoakTimeOn,
-}
 
-/// CFGAR3 register. Fourth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA3 {
+    // CFGAR3! fourth byte of the register group.
     /// Pull-up/pull-down config for GPIO1.
     #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio1: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO2.
@@ -253,21 +252,15 @@ pub struct ConfigA3 {
     #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio7: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO8.
     #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio8: types::GpioxPullDownConfig,
-}
 
-/// CFGAR4 register. Fifth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA4 {
+    // CFGAR4! fifth byte of the register group.
     /// Pull-up/pull-down config for GPIO9.
     #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio9: types::GpioxPullDownConfig,
     /// Pull-up/pull-down config for GPIO10.
     #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio10: types::GpioxPullDownConfig,
-    #[bits(6, default = 0)]     _reserved: u8,
-}
+    #[bits(6, default = 0)]     _reserved2: u8,
 
-/// CFGAR5 register. Sixth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[bitfield(u8)]
-pub struct ConfigA5 {
+    // CFGAR5! sixth byte of the register group.
     /// Infinite Impulse Response (IIR) filter configuration.
     #[bits(3, default = types::IirFilterConfig::DEFAULT)]     pub fc: types::IirFilterConfig,
     /// Communication Break configuration.
@@ -276,22 +269,7 @@ pub struct ConfigA5 {
     #[bits(1, default = types::MuteStatus::DEFAULT)]          pub mute_st: types::MuteStatus,
     /// Snapshot status configuration.
     #[bits(1, default = types::SnapshotStatus::DEFAULT)]      pub snap_st: types::SnapshotStatus,
-    #[bits(2, default = 0)]                                   _reserved: u8,
-}
+    #[bits(2, default = 0)]                                   _reserved3: u8,
 
-/// Configuration Register Group A (CFGA). Contains six 1-byte registers (so 6 bytes total).
-/// 
-/// See Table 55 on page 61 of the datasheet.
-#[register_group(
-    write = Some(commands::config::wrcfga().frame()),
-    read = commands::config::rdcfga().frame(),
-)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ConfigA {
-    pub cfgar0: ConfigA0,
-    pub cfgar1: ConfigA1,
-    pub cfgar2: ConfigA2,
-    pub cfgar3: ConfigA3,
-    pub cfgar4: ConfigA4,
-    pub cfgar5: ConfigA5,
+    #[bits(16, default = 0)]                                  _padding: u16,
 }
