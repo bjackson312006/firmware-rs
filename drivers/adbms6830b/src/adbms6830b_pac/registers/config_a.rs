@@ -1,17 +1,16 @@
 //! Register Layouts and Bit Descriptions for Configuration Register Group A. 
 //! 
 //! The "main" struct here (i.e., the struct representing the overall register group) is `ConfigA`.
+//! `ConfigA` can be translated into full protocol frames (for sending) via `ConfigAReadRequest`, `ConfigAReadResponse`, and `ConfigAWriteFrame`.
 //! 
 //! For more info about these registers, see Table 102 on page 70 of the datasheet
 //! and Table 55 on page 61 of the datasheet.
 
 use bitfield_struct::{bitfield, bitenum};
-use adbms6830b_macros::{BitfieldEnumDefault, RegisterGroup, register_kind};
-use crate::adbms6830b_pac::commands::CommandFrame;
-use crate::adbms6830b_pac::pec::DataPecTx;
+use adbms6830b_macros::BitfieldEnumDefault;
 
-use super::{Register, RegisterKind};
-use super::super::{commands, pec};
+use super::register_group;
+use super::super::commands;
 
 /// Field types relavent to Configuration Register A. See Table 102 on page 70 of the datasheet.
 pub mod types {
@@ -193,7 +192,6 @@ pub mod types {
 }
 
 /// CFGAR0 register. First byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA0 {
     /// C-ADC vs. S-ADC comparison voltage theshold. Three-bit field.
@@ -204,7 +202,6 @@ pub struct ConfigA0 {
 }
 
 /// CFGAR1 register. Second byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA1 {
     /// Forces oscillator counter fast.
@@ -226,7 +223,6 @@ pub struct ConfigA1 {
 }
 
 /// CFGAR2 register. Third byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA2 {
     #[bits(3, default = 0)]     _reserved: u8,
@@ -239,7 +235,6 @@ pub struct ConfigA2 {
 }
 
 /// CFGAR3 register. Fourth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA3 {
     /// Pull-up/pull-down config for GPIO1.
@@ -261,7 +256,6 @@ pub struct ConfigA3 {
 }
 
 /// CFGAR4 register. Fifth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA4 {
     /// Pull-up/pull-down config for GPIO9.
@@ -272,7 +266,6 @@ pub struct ConfigA4 {
 }
 
 /// CFGAR5 register. Sixth byte of Configuration Register Group A. See Table 55 on page 61 of the datasheet.
-#[register_kind(RegisterKind::ReadWrite)]
 #[bitfield(u8)]
 pub struct ConfigA5 {
     /// Infinite Impulse Response (IIR) filter configuration.
@@ -289,7 +282,11 @@ pub struct ConfigA5 {
 /// Configuration Register Group A (CFGA). Contains six 1-byte registers (so 6 bytes total).
 /// 
 /// See Table 55 on page 61 of the datasheet.
-#[derive(Clone, Copy, Debug, Default, RegisterGroup)]
+#[register_group(
+    write = Some(commands::config::wrcfga().frame()),
+    read = commands::config::rdcfga().frame(),
+)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct ConfigA {
     pub cfgar0: ConfigA0,
     pub cfgar1: ConfigA1,
@@ -297,118 +294,4 @@ pub struct ConfigA {
     pub cfgar3: ConfigA3,
     pub cfgar4: ConfigA4,
     pub cfgar5: ConfigA5,
-}
-
-/// A complete protocol frame for a `ConfigA` write command.
-/// 
-/// This frame contains your `ConfigA` data, plus an automatically-calculated command frame header and
-/// data PEC. This frame can be constructed via `ConfigAWriteFrame::new()`, and can be serialized into bytes (for
-/// sending) via `to_bytes()`.
-#[derive(Clone, Copy, Debug)]
-pub struct ConfigAWriteFrame {
-    command: CommandFrame,
-    data: ConfigA,
-    data_pec: DataPecTx,
-}
-
-impl ConfigAWriteFrame {
-    /// Builds a `ConfigAWriteFrame`.
-    /// 
-    /// ### Parameters
-    /// - `data`: The data you want to write to this register group.
-    pub const fn new(data: ConfigA) -> Self {
-        let command = commands::config::wrcfga().frame();
-        let data_pec = DataPecTx::new(&data.to_bytes());
-        Self { command, data, data_pec }
-    }
-
-    /// Serializes the frame into bytes, for sending.
-    pub const fn to_bytes(self) -> [u8; core::mem::size_of::<Self>()] {
-        let command = self.command.to_bytes();
-        let data = self.data.to_bytes();
-        [
-            command[0], command[1], command[2], command[3],
-            data[0], data[1], data[2], data[3], data[4], data[5],
-            self.data_pec.pec0(), self.data_pec.pec1(),
-        ]
-    }
-
-    /// The command portion of this frame.
-    pub const fn command(&self) -> CommandFrame { self.command }
-
-    /// The data carried by this frame.
-    pub const fn data(&self) -> ConfigA { self.data }
-
-    /// The data PEC computed over the provided data.
-    pub const fn data_pec(&self) -> DataPecTx { self.data_pec }
-}
-
-/// A complete protocol frame for a `ConfigA` read request.
-/// 
-/// This frame can be transmitted to request a read of this register group. The received data can be read in
-/// as a `ConfigAReadResponse`.
-/// 
-/// This frame can be constructed via `ConfigAReadRequest::new()`, and can be serialized into bytes (for 
-/// sending) via `to_bytes()`.
-#[derive(Clone, Copy, Debug)]
-pub struct ConfigAReadRequest {
-    command: CommandFrame,
-}
-
-impl ConfigAReadRequest {
-    /// Builds a `ConfigAReadRequest`.
-    pub const fn new() -> Self {
-        Self { command: commands::config::rdcfga().frame() }
-    }
-
-    /// Serializes the frame into bytes, for sending.
-    pub const fn to_bytes(self) -> [u8; 4] {
-        self.command.to_bytes()
-    }
-
-    /// The command portion of this request.
-    pub const fn command(&self) -> CommandFrame { self.command }
-}
-
-impl Default for ConfigAReadRequest {
-    fn default() -> Self { Self::new() }
-}
-
-/// A complete protocol frame for a `ConfigA` read response.
-/// 
-/// This frame can be constructed from the bytes you receive after sending a `ConfigAReadRequest`.
-/// 
-/// This frame can be constructed via `ConfigAReadResponse::from_bytes(bytes)`, where `bytes` are the bytes received
-/// from the device following the read request.
-#[derive(Clone, Copy, Debug)]
-pub struct ConfigAReadResponse {
-    data: ConfigA,
-    pec: pec::DataPecRx,
-}
-
-impl ConfigAReadResponse {
-    /// Parses received bytes and converts them into a `ConfigAReadResponse`.
-    ///
-    /// ### Returns
-    /// - `Some(ConfigAReadResponse)`, if the provided `bytes` are valid. This means your read was successful, and the register
-    /// group data can be read via `data()`.
-    /// - `None`, if the PEC check fails. This typically indicates that there was some kind of error during
-    /// reading or transmitting the response. For more info, see the `DATA PEC` section on page 53 of the datasheet.
-    pub const fn from_bytes(bytes: [u8; 8]) -> Option<Self> {
-        let data = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]];
-        let pec = pec::DataPecRx::from_bytes([bytes[6], bytes[7]]);
-        if !pec.verify(&data) {
-            return None;
-        }
-        Some(Self {
-            data: ConfigA::from_bytes(data),
-            pec,
-        })
-    }
-
-    /// The data carried by this frame.
-    pub const fn data(&self) -> ConfigA { self.data }
-
-    /// The device's command counter (`CCNT[5:0]`) reported alongside this response.
-    pub const fn command_counter(&self) -> u8 { self.pec.ccnt() }
 }

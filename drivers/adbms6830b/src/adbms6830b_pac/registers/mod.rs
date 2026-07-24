@@ -3,20 +3,23 @@
 #![allow(dead_code)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-/// Defines the read/write type of a register.
+use adbms6830b_macros::register_group;
+
+/// Defines whether a register group can be written to, or is read-only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RegisterKind {
-    /// Register can only be read from.
+    /// The register group can only be read from.
     ReadOnly,
-    /// Register can be read from and written to.
+    /// The register group can be read from and written to.
     ReadWrite,
-    /// get it
-    WriteOnly,
 }
 
-/// A register inside the ADBMS6830.
-pub trait Register {
-    /// Gets the type of register (i.e., whether it is read-only, read/write, etc.)
-    fn kind(&self) -> RegisterKind;
+/// Common interface implemented by every register group.
+/// 
+/// This interface is implemented by the "internal" `register_group` proc macro.
+pub trait RegisterGroup {
+    /// Whether this register group is read-only or read/write.
+    const KIND: RegisterKind;
 }
 
 pub mod config_a;
