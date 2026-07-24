@@ -112,7 +112,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
-    pub enum GpioxPullDownConfig {
+    pub enum GpioPullDownConfig {
         /// GPIOx pin pull-down on.
         PullDownOn = 0,
         /// GPIOx pin pull-down off (default).
@@ -237,27 +237,27 @@ pub struct ConfigA {
 
     // CFGAR3! fourth byte of the register group.
     /// Pull-up/pull-down config for GPIO1.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio1: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio1: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO2.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio2: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio2: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO3.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio3: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio3: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO4.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio4: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio4: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO5.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio5: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio5: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO6.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio6: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio6: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO7.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio7: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio7: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO8.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio8: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio8: types::GpioPullDownConfig,
 
     // CFGAR4! fifth byte of the register group.
     /// Pull-up/pull-down config for GPIO9.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio9: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio9: types::GpioPullDownConfig,
     /// Pull-up/pull-down config for GPIO10.
-    #[bits(1, default = types::GpioxPullDownConfig::DEFAULT)]     pub gpio10: types::GpioxPullDownConfig,
+    #[bits(1, default = types::GpioPullDownConfig::DEFAULT)]     pub gpio10: types::GpioPullDownConfig,
     #[bits(6, default = 0)]     _reserved2: u8,
 
     // CFGAR5! sixth byte of the register group.
