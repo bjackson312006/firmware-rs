@@ -7,7 +7,11 @@
 
 use bitfield_struct::{bitfield, bitenum};
 use adbms6830b_macros::{BitfieldEnumDefault, RegisterGroup, register_kind};
+use crate::adbms6830b_pac::commands::CommandFrame;
+use crate::adbms6830b_pac::pec::DataPecTx;
+
 use super::{Register, RegisterKind};
+use super::super::{commands, pec};
 
 /// Field types relavent to Configuration Register A. See Table 102 on page 70 of the datasheet.
 pub mod types {
@@ -293,4 +297,112 @@ pub struct ConfigA {
     pub cfgar3: ConfigA3,
     pub cfgar4: ConfigA4,
     pub cfgar5: ConfigA5,
+}
+
+/// A complete 12-byte `WRCFGA` frame for a single device: command + command PEC, the six data
+/// bytes (CFGAR0..CFGAR5), and the data PEC.
+///
+/// Construct with [`ConfigAWriteFrame::new`]; every PEC byte is computed for you. The resulting
+/// bytes are ready to clock out over SPI.
+#[derive(Clone, Copy, Debug)]
+pub struct ConfigAWriteFrame {
+    command: CommandFrame,
+    data: ConfigA,
+    data_pec: DataPecTx,
+}
+
+impl ConfigAWriteFrame {
+    /// Builds a `WRCFGA` frame for the given configuration, computing both the command PEC and the
+    /// data PEC.
+    pub const fn new(config: ConfigA) -> Self {
+        let command = commands::config::wrcfga().frame();
+        let data_pec = DataPecTx::new(&config.to_bytes());
+        Self { command, data: config, data_pec }
+    }
+
+    /// Serializes the frame into its 12 wire bytes: command (4) + data (6) + data PEC (2).
+    pub const fn to_bytes(self) -> [u8; core::mem::size_of::<Self>()] {
+        let command = self.command.to_bytes();
+        let data = self.data.to_bytes();
+        [
+            command[0], command[1], command[2], command[3],
+            data[0], data[1], data[2], data[3], data[4], data[5],
+            self.data_pec.pec0(), self.data_pec.pec1(),
+        ]
+    }
+
+    /// The command portion of this frame.
+    pub const fn command(&self) -> CommandFrame { self.command }
+
+    /// The configuration data carried by this frame.
+    pub const fn data(&self) -> ConfigA { self.data }
+
+    /// The data PEC computed over the configuration data.
+    pub const fn data_pec(&self) -> DataPecTx { self.data_pec }
+}
+
+/// A 4-byte `RDCFGA` request: the read command plus its command PEC.
+///
+/// Construct with [`ConfigAReadRequest::new`]; the command PEC is computed for you. Clock these
+/// bytes out, then clock in 8 bytes per device and parse them with
+/// [`ConfigAReadResponse::from_bytes`].
+#[derive(Clone, Copy, Debug)]
+pub struct ConfigAReadRequest {
+    command: CommandFrame,
+}
+
+impl ConfigAReadRequest {
+    /// Builds the `RDCFGA` request frame, computing its command PEC.
+    pub const fn new() -> Self {
+        Self { command: commands::config::rdcfga().frame() }
+    }
+
+    /// Serializes the request into its 4 wire bytes: `[CMD0, CMD1, PEC0, PEC1]`.
+    pub const fn to_bytes(self) -> [u8; 4] {
+        self.command.to_bytes()
+    }
+
+    /// The command portion of this request.
+    pub const fn command(&self) -> CommandFrame { self.command }
+}
+
+impl Default for ConfigAReadRequest {
+    fn default() -> Self { Self::new() }
+}
+
+/// The 8 bytes clocked in from one device in response to `RDCFGA`: the six data bytes
+/// (CFGAR0..CFGAR5) followed by the two data PEC bytes.
+///
+/// Construct with [`ConfigAReadResponse::from_bytes`], which verifies the data PEC and returns
+/// `None` if the check fails (indicating a communication error during reception).
+#[derive(Clone, Copy, Debug)]
+pub struct ConfigAReadResponse {
+    config: ConfigA,
+    pec: pec::DataPecRx,
+}
+
+impl ConfigAReadResponse {
+    /// Parses the 8 bytes clocked in from a device, verifying the data PEC.
+    ///
+    /// Returns `None` if the PEC check fails.
+    ///
+    /// - `bytes[0..6]`: the CFGAR0..CFGAR5 data bytes.
+    /// - `bytes[6..8]`: the received data PEC (PEC0, then PEC1).
+    pub const fn from_bytes(bytes: [u8; 8]) -> Option<Self> {
+        let data = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]];
+        let pec = pec::DataPecRx::from_bytes([bytes[6], bytes[7]]);
+        if !pec.verify(&data) {
+            return None;
+        }
+        Some(Self {
+            config: ConfigA::from_bytes(data),
+            pec,
+        })
+    }
+
+    /// The decoded configuration register group.
+    pub const fn config(&self) -> ConfigA { self.config }
+
+    /// The device's command counter (`CCNT[5:0]`) reported alongside this response.
+    pub const fn command_counter(&self) -> u8 { self.pec.ccnt() }
 }

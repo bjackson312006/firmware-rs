@@ -25,6 +25,34 @@ pub struct Command {
     code: CommandCode,
 }
 
+/// A Command Frame (the command code plus its command PEC). This is four bytes total.
+#[derive(Clone, Copy, Debug)]
+pub struct CommandFrame {
+    code: CommandCode,
+    pec: super::pec::CommandPec,
+}
+impl CommandFrame {
+    /// Creates a `CommandFrame` from a `Command`, computing its command PEC.
+    pub const fn from_command(command: &Command) -> Self {
+        let pec = super::pec::CommandPec::new(&[command.cmd0(), command.cmd1()]);
+        Self { code: command.code(), pec }
+    }
+
+    /// The command code (`CC[10:0]`).
+    pub const fn code(&self) -> CommandCode { self.code }
+
+    /// The command PEC.
+    pub const fn pec(&self) -> super::pec::CommandPec { self.pec }
+
+    /// Converts a `CommandFrame` into bytes.
+    pub const fn to_bytes(self) -> [u8; 4] {
+        let code = self.code.into_bits();
+        let cmd0 = (code >> 8) as u8 & 0x07;
+        let cmd1 = (code & 0xFF) as u8;
+        [cmd0, cmd1, self.pec.pec0(), self.pec.pec1()]
+    }
+}
+
 impl Command {
     /// Allows you to define a command. Ideally should be called in a const context.
     /// ## Prammies
@@ -58,11 +86,8 @@ impl Command {
     pub const fn increments(&self) -> bool { self.inc }
 
     /// Returns this `Command` as a 4-byte command frame.
-    pub fn frame(&self) -> [u8; 4] {
-        let cmd0 = self.cmd0();
-        let cmd1 = self.cmd1();
-        let pec = super::pec::CommandPec::new(&[cmd0, cmd1]);
-        [cmd0, cmd1, pec.pec0(), pec.pec1()]
+    pub const fn frame(&self) -> CommandFrame {
+        CommandFrame::from_command(self)
     }
 }
 
