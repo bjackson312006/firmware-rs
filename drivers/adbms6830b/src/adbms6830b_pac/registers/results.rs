@@ -6,7 +6,7 @@
 use bitfield_struct::{bitfield, bitenum};
 use adbms6830b_macros::BitfieldEnumDefault;
 
-use super::register_group;
+use super::{register_group, register_group_aggregate};
 use super::super::commands;
 
 /// Field types relavent to the Result Register groups. See Table 104 on page 71 of the datasheet.
@@ -34,7 +34,7 @@ pub mod types {
     /// - CxV is a signed 16-bit (two's complement) code that maps to a cell voltage.
     /// 
     /// The inverse (with `x` in microvolts) is:
-    /// CxV(x) = ((x - 1_500_000) / 150)     (with the result being rounded cus 150 probably wont divide cleanly most the time)
+    /// CxV(x) = ((x - 1_500_000) / 150))     (with the result being rounded cus 150 probably wont divide cleanly most the time)
     /// 
     /// This will return `None` if the microvolts input is outside the representable range.
     const fn result_voltage_from_microvolts(microvolts: i32) -> Option<u16> {
@@ -66,6 +66,14 @@ pub mod types {
     pub struct CellVoltage { #[bits(16, default = 0x8000)] inner: u16 }
     impl CellVoltage {
         pub const DEFAULT: CellVoltage = Self::new();
+
+        // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
 
         /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
         pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
@@ -105,6 +113,14 @@ pub mod types {
     impl AverageCellVoltage {
         pub const DEFAULT: AverageCellVoltage = Self::new();
 
+        // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
+
         /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
         pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
 
@@ -142,6 +158,14 @@ pub mod types {
     pub struct FilteredCellVoltage { #[bits(16, default = 0x8000)] inner: u16 }
     impl FilteredCellVoltage {
         pub const DEFAULT: FilteredCellVoltage = Self::new();
+
+        // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
 
         /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
         pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
@@ -181,6 +205,14 @@ pub mod types {
     impl SPinVoltage {
         pub const DEFAULT: SPinVoltage = Self::new();
 
+        // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
+
         /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
         pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
 
@@ -218,6 +250,14 @@ pub mod types {
     impl RedundantGpioVoltage {
         pub const DEFAULT: RedundantGpioVoltage = Self::new();
 
+        // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
+
         /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
         pub const MIN_MICROVOLTS: i32 = MIN_MICROVOLTS;
 
@@ -250,6 +290,8 @@ pub mod types {
 
 /// Cell Voltage Register Group A (CVA). Contains six 1-byte registers (so 6 bytes total).
 /// 
+/// Contains cells 1 through 3.
+/// 
 /// See Table 57 on page 61 of the datasheet.
 #[register_group(
     bytes = 6,
@@ -268,6 +310,8 @@ pub struct CellVoltagesA {
 }
 
 /// Cell Voltage Register Group B (CVB). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 4 through 6.
 /// 
 /// See Table 58 on page 61 of the datasheet.
 #[register_group(
@@ -288,6 +332,8 @@ pub struct CellVoltagesB {
 
 /// Cell Voltage Register Group C (CVC). Contains six 1-byte registers (so 6 bytes total).
 /// 
+/// Contains cells 7 through 9.
+/// 
 /// See Table 59 on page 62 of the datasheet.
 #[register_group(
     bytes = 6,
@@ -306,6 +352,8 @@ pub struct CellVoltagesC {
 }
 
 /// Cell Voltage Register Group D (CVD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 10 through 12.
 /// 
 /// See Table 60 on page 62 of the datasheet.
 #[register_group(
@@ -326,6 +374,8 @@ pub struct CellVoltagesD {
 
 /// Cell Voltage Register Group E (CVE). Contains six 1-byte registers (so 6 bytes total).
 /// 
+/// Contains cells 13 through 15.
+/// 
 /// See Table 61 on page 62 of the datasheet.
 #[register_group(
     bytes = 6,
@@ -345,6 +395,8 @@ pub struct CellVoltagesE {
 
 /// Cell Voltage Register Group F (CVF). Contains six 1-byte registers (so 6 bytes total).
 /// 
+/// Just contains cell 16.
+/// 
 /// See Table 62 on page 62 of the datasheet.
 #[register_group(
     bytes = 6,
@@ -357,4 +409,27 @@ pub struct CellVoltagesF {
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c16v: types::CellVoltage,
     #[bits(32, default = u32::MAX)]                     _reserved: u32,
     #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// All cell voltage results (Cell Voltage Register Group A through F).
+#[register_group_aggregate(
+    read = commands::cell_voltage::rdcvall().frame(),
+)]
+#[derive(Clone, Copy, Debug)]
+pub struct CellVoltagesAll {
+    /// Cells 1–3 (Cell Voltage Register Group A).
+    pub a: CellVoltagesA,
+    /// Cells 4–6 (Cell Voltage Register Group B).
+    pub b: CellVoltagesB,
+    /// Cells 7–9 (Cell Voltage Register Group C).
+    pub c: CellVoltagesC,
+    /// Cells 10–12 (Cell Voltage Register Group D).
+    pub d: CellVoltagesD,
+    /// Cells 13–15 (Cell Voltage Register Group E).
+    pub e: CellVoltagesE,
+    /// Cell 16 (Cell Voltage Register Group F).
+    /// 
+    /// There's only 1 cell in Cell Voltage Register Group F, so this type has to be `types::CellVoltage` instead of `CellVoltagesF`.
+    /// Otherwise the serialization would get messed up.
+    pub f: types::CellVoltage,
 }

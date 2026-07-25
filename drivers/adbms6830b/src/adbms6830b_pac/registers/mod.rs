@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
-use adbms6830b_macros::register_group;
+use adbms6830b_macros::{register_group, register_group_aggregate};
 
 /// Defines whether a register group can be written to, or is read-only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
