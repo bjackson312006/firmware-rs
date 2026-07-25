@@ -207,9 +207,9 @@ pub mod types {
     /// This is a 16-bit ADC measurement value for Sx pin from ADSV or ADCV commands. S-pin voltage for channel `x` = SxV x 150uV + 1.5V.
     /// SxV is reset to 0x8000 on power-up and after clear command (CLRCELL), which corresponds to -3,415,200 uV / -3.4152 V.
     #[bitfield(u16)]
-    pub struct SPinVoltage { #[bits(16, default = 0x8000)] inner: u16 }
-    impl SPinVoltage {
-        pub const DEFAULT: SPinVoltage = Self::new();
+    pub struct SVoltage { #[bits(16, default = 0x8000)] inner: u16 }
+    impl SVoltage {
+        pub const DEFAULT: SVoltage = Self::new();
 
         // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
         /// The number of protocol bytes this result value occupies.
@@ -226,14 +226,14 @@ pub mod types {
         /// This is around +6,415,050 uV / +6.41505 V.
         pub const MAX_MICROVOLTS: i32 = MAX_MICROVOLTS;
 
-        /// Converts a `SPinVoltage` to microvolts.
+        /// Converts a `SVoltage` to microvolts.
         pub const fn as_microvolts(&self) -> i32 {
             result_voltage_to_microvolts(self.inner())
         }
 
-        /// Creates a new `SPinVoltage` from an input value in uV.
+        /// Creates a new `SVoltage` from an input value in uV.
         /// 
-        /// `SPinVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
+        /// `SVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
         /// 
         /// ### Parameters
         /// - `microvolts`: S-pin voltage, in uV. May be negative.
@@ -730,4 +730,150 @@ pub struct FilteredCellVoltagesAll {
     /// There's only 1 cell in Filtered Cell Voltage Register Group F, so this type has to be `types::FilteredCellVoltage` instead of `FilteredCellVoltagesF`.
     /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
     pub f: types::FilteredCellVoltage,
+}
+
+/// S-Voltage Register Group A (SCA). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains S pins 1-3.
+/// 
+/// See Table 75 on page 65 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsva().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesA {
+    /// Cell 1 S-Voltage Result. Corresponds to `S1V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s1v: types::SVoltage,
+    /// Cell 2 S-Voltage Result. Corresponds to `S2V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s2v: types::SVoltage,
+    /// Cell 3 S-Voltage Result. Corresponds to `S3V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s3v: types::SVoltage,
+    #[bits(16, default = 0)]                                   _padding: u16,
+}
+
+/// S-Voltage Register Group B (SCB). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains S pins 4-6.
+/// 
+/// See Table 76 on page 65 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsvb().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesB {
+    /// Cell 4 S-Voltage Result. Corresponds to `S4V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s4v: types::SVoltage,
+    /// Cell 5 S-Voltage Result. Corresponds to `S5V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s5v: types::SVoltage,
+    /// Cell 6 S-Voltage Result. Corresponds to `S6V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s6v: types::SVoltage,
+    #[bits(16, default = 0)]                                   _padding: u16,
+}
+
+/// S-Voltage Register Group C (SCC). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains S pins 7-9.
+/// 
+/// See Table 77 on page 65 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsvc().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesC {
+    /// Cell 7 S-Voltage Result. Corresponds to `S7V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s7v: types::SVoltage,
+    /// Cell 8 S-Voltage Result. Corresponds to `S8V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s8v: types::SVoltage,
+    /// Cell 9 S-Voltage Result. Corresponds to `S9V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s9v: types::SVoltage,
+    #[bits(16, default = 0)]                                   _padding: u16,
+}
+
+/// S-Voltage Register Group D (SCD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains S pins 10-12.
+/// 
+/// See Table 78 on page 65 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsvd().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesD {
+    /// Cell 10 S-Voltage Result. Corresponds to `S10V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s10v: types::SVoltage,
+    /// Cell 11 S-Voltage Result. Corresponds to `S11V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s11v: types::SVoltage,
+    /// Cell 12 S-Voltage Result. Corresponds to `S12V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s12v: types::SVoltage,
+    #[bits(16, default = 0)]                                   _padding: u16,
+}
+
+/// S-Voltage Register Group E (SCE). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains S pins 13-15.
+/// 
+/// See Table 79 on page 65 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsve().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesE {
+    /// Cell 13 S-Voltage Result. Corresponds to `S13V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s13v: types::SVoltage,
+    /// Cell 14 S-Voltage Result. Corresponds to `S14V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s14v: types::SVoltage,
+    /// Cell 15 S-Voltage Result. Corresponds to `S15V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s15v: types::SVoltage,
+    #[bits(16, default = 0)]                                   _padding: u16,
+}
+
+/// S-Voltage Register Group F (FCF). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Just S pin 16.
+/// 
+/// See Table 80 on page 66 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::s_voltage::rdsvf().frame(),
+)]
+#[bitfield(u64)]
+pub struct SVoltagesF {
+    /// Cell 16 S-Voltage Result. Corresponds to `S16V[15:0]`.
+    #[bits(16, default = types::SVoltage::DEFAULT)]  pub s16v: types::SVoltage,
+    #[bits(32, default = u32::MAX)]                  _reserved: u32,
+    #[bits(16, default = 0)]                         _padding: u16,
+}
+
+/// All S-voltage results (S-Voltage Register Group A through F).
+#[register_group_aggregate(
+    read = commands::s_voltage::rdsall().frame(),
+)]
+#[derive(Clone, Copy, Debug)]
+pub struct SVoltagesAll {
+    /// Cells/Pins 1–3 (S-Voltage Register Group A).
+    pub a: SVoltagesA,
+    /// Cells/Pins 4–6 (S-Voltage Register Group B).
+    pub b: SVoltagesB,
+    /// Cells/Pins 7–9 (S-Voltage Register Group C).
+    pub c: SVoltagesC,
+    /// Cells/Pins 10–12 (S-Voltage Register Group D).
+    pub d: SVoltagesD,
+    /// Cells 13–15 (S-Voltage Register Group E).
+    pub e: SVoltagesE,
+    /// Cell/Pin 16 (S-Voltage Register Group F).
+    /// 
+    /// There's only 1 cell in S-Voltage Register Group F, so this type has to be `types::SVoltage` instead of `SVoltagesF`.
+    /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
+    pub f: types::SVoltage,
 }
