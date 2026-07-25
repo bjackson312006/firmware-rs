@@ -36,14 +36,15 @@ pub mod types {
     /// - VUV/VOV is a signed 12-bit (two's complement) code that maps to a threshold voltage.
     /// 
     /// The inverse (with `x` in microvolts) is:
-    /// VUV(x) = round((x - 1_500_000) / 2400)
+    /// VUV(x) = (x - 1_500_000) / 2400)    (with the result being rounded cus 2400 probably wont divide cleanly most the time)
     /// 
     /// This will return `None` if the microvolts input is outside the representable range.
     const fn vuv_vov_from_microvolts(microvolts: i32) -> Option<u16> {
         if microvolts < MIN_MICROVOLTS || microvolts > MAX_MICROVOLTS { return None; }
 
         let numerator = microvolts - OFFSET_MICROVOLTS;
-        // Round to the nearest code, symmetric about zero.
+
+        // do the rounding
         let code = if numerator >= 0 {
             (numerator + LSB_MICROVOLTS / 2) / LSB_MICROVOLTS
         } else {
@@ -207,60 +208,4 @@ pub mod types {
         /// Continuously turns on shorting switch for Cell `x`.
         ShortingSwitchOn = 1,
     }
-}
-
-/// Configuration Register Group B (CFGB). Contains six 1-byte registers (so 6 bytes total).
-/// 
-/// See Table 56 on page 61 of the datasheet.
-#[register_group(
-    bytes = 6,
-    write = Some(commands::config::wrcfgb().frame()),
-    read = commands::config::rdcfgb().frame(),
-)]
-#[bitfield(u64)]
-pub struct ConfigB {
-    /// UV threshold/comparison voltage (VUV). Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. 12-bit field. Corresponds to `VUV[11:0]`.
-    #[bits(12, default = types::UndervoltageThreshold::DEFAULT)]  pub vuv: types::UndervoltageThreshold,
-    /// OV threshold/comparison voltage (VOV). Cell overvoltage threshold = VOV × 16 × 150 μV + 1.5 V. 12-bit field. Corresponds to `VOV[11:0]`.
-    #[bits(12, default = types::OvervoltageThreshold::DEFAULT)]  pub vov: types::OvervoltageThreshold,
-    /// Status of the discharge timer. Corresponds to `DCTO[5:0]`.
-    #[bits(6, default = types::DischargeTimerStatus::DEFAULT)]  pub dcto: types::DischargeTimerStatus,
-    /// Range of the discharge timer.
-    #[bits(1, default = types::DischargeTimerRange::DEFAULT)]   pub dtrng: types::DischargeTimerRange,
-    /// Enable/disable discharge timer monitoring.
-    #[bits(1, default = types::DischargeTimerMonitor::DEFAULT)] pub dtmen: types::DischargeTimerMonitor,
-    /// Discharge Cell 1 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc1: types::DischargeCellConfig,
-    /// Discharge Cell 2 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc2: types::DischargeCellConfig,
-    /// Discharge Cell 3 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc3: types::DischargeCellConfig,
-    /// Discharge Cell 4 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc4: types::DischargeCellConfig,
-    /// Discharge Cell 5 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc5: types::DischargeCellConfig,
-    /// Discharge Cell 6 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc6: types::DischargeCellConfig,
-    /// Discharge Cell 7 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc7: types::DischargeCellConfig,
-    /// Discharge Cell 8 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc8: types::DischargeCellConfig,
-    /// Discharge Cell 9 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc9: types::DischargeCellConfig,
-    /// Discharge Cell 10 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc10: types::DischargeCellConfig,
-    /// Discharge Cell 11 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc11: types::DischargeCellConfig,
-    /// Discharge Cell 12 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc12: types::DischargeCellConfig,
-    /// Discharge Cell 13 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc13: types::DischargeCellConfig,
-    /// Discharge Cell 14 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc14: types::DischargeCellConfig,
-    /// Discharge Cell 15 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc15: types::DischargeCellConfig,
-    /// Discharge Cell 16 Configuration
-    #[bits(1, default = types::DischargeCellConfig::DEFAULT)]   pub dcc16: types::DischargeCellConfig,
-    #[bits(16, default = 0)]                                    _padding: u16,
-
 }
