@@ -34,7 +34,7 @@ pub mod types {
     /// - CxV is a signed 16-bit (two's complement) code that maps to a cell voltage.
     /// 
     /// The inverse (with `x` in microvolts) is:
-    /// CxV(x) = (x - 1_500_000) / 150)     (with the result being rounded cus 2400 probably wont divide cleanly most the time)
+    /// CxV(x) = ((x - 1_500_000) / 150)     (with the result being rounded cus 150 probably wont divide cleanly most the time)
     /// 
     /// This will return `None` if the microvolts input is outside the representable range.
     const fn result_voltage_from_microvolts(microvolts: i32) -> Option<u16> {
@@ -198,7 +198,7 @@ pub mod types {
         /// `SPinVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
         /// 
         /// ### Parameters
-        /// - `microvolts`: Filtered cell voltage, in uV. May be negative.
+        /// - `microvolts`: S-pin voltage, in uV. May be negative.
         /// 
         /// This function will return `None` if your input is outside the `MIN_MICROVOLTS`
         /// to `MAX_MICROVOLTS` range.
@@ -235,7 +235,7 @@ pub mod types {
         /// `RedundantGpioVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
         /// 
         /// ### Parameters
-        /// - `microvolts`: Filtered cell voltage, in uV. May be negative.
+        /// - `microvolts`: Redundant GPIO voltage, in uV. May be negative.
         /// 
         /// This function will return `None` if your input is outside the `MIN_MICROVOLTS`
         /// to `MAX_MICROVOLTS` range.
