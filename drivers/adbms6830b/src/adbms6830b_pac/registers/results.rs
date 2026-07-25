@@ -458,7 +458,7 @@ pub struct AverageCellVoltagesA {
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac2v: types::AverageCellVoltage,
     /// Cell 3 Average Voltage Result. Corresponds to `AC3V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac3v: types::AverageCellVoltage,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// Avergage Cell Voltage Register Group B (ACB). Contains six 1-byte registers (so 6 bytes total).
@@ -479,7 +479,7 @@ pub struct AverageCellVoltagesB {
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac5v: types::AverageCellVoltage,
     /// Cell 6 Average Voltage Result. Corresponds to `AC6V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac6v: types::AverageCellVoltage,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// Avergage Cell Voltage Register Group C (ACC). Contains six 1-byte registers (so 6 bytes total).
@@ -500,7 +500,7 @@ pub struct AverageCellVoltagesC {
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac8v: types::AverageCellVoltage,
     /// Cell 9 Average Voltage Result. Corresponds to `AC9V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac9v: types::AverageCellVoltage,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// Avergage Cell Voltage Register Group D (ACD). Contains six 1-byte registers (so 6 bytes total).
@@ -521,7 +521,7 @@ pub struct AverageCellVoltagesD {
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac11v: types::AverageCellVoltage,
     /// Cell 12 Average Voltage Result. Corresponds to `AC12V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac12v: types::AverageCellVoltage,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// Avergage Cell Voltage Register Group E (ACE). Contains six 1-byte registers (so 6 bytes total).
@@ -542,7 +542,7 @@ pub struct AverageCellVoltagesE {
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac14v: types::AverageCellVoltage,
     /// Cell 15 Average Voltage Result. Corresponds to `AC15V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac15v: types::AverageCellVoltage,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// Average Cell Voltage Register Group F (ACF). Contains six 1-byte registers (so 6 bytes total).
@@ -559,8 +559,8 @@ pub struct AverageCellVoltagesE {
 pub struct AverageCellVoltagesF {
     /// Cell 16 Average Voltage Result. Corresponds to `AC16V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac16v: types::AverageCellVoltage,
-    #[bits(32, default = u32::MAX)]                     _reserved: u32,
-    #[bits(16, default = 0)]                            _padding: u16,
+    #[bits(32, default = u32::MAX)]                            _reserved: u32,
+    #[bits(16, default = 0)]                                   _padding: u16,
 }
 
 /// All average cell voltage results (Average Cell Voltage Register Group A through F).
@@ -584,4 +584,150 @@ pub struct AverageCellVoltagesAll {
     /// There's only 1 cell in Average Cell Voltage Register Group F, so this type has to be `types::AverageCellVoltage` instead of `AverageCellVoltagesF`.
     /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
     pub f: types::AverageCellVoltage,
+}
+
+/// Filtered Cell Voltage Register Group A (FCA). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 1-3.
+/// 
+/// See Table 69 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfca().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesA {
+    /// Cell 1 Filtered Voltage Result. Corresponds to `FC1V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc1v: types::FilteredCellVoltage,
+    /// Cell 2 Filtered Voltage Result. Corresponds to `FC2V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc2v: types::FilteredCellVoltage,
+    /// Cell 3 Filtered Voltage Result. Corresponds to `FC3V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc3v: types::FilteredCellVoltage,
+    #[bits(16, default = 0)]                                    _padding: u16,
+}
+
+/// Filtered Cell Voltage Register Group B (FCB). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 4-6.
+/// 
+/// See Table 70 on page 64 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfcb().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesB {
+    /// Cell 4 Filtered Voltage Result. Corresponds to `FC4V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc4v: types::FilteredCellVoltage,
+    /// Cell 5 Filtered Voltage Result. Corresponds to `FC5V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc5v: types::FilteredCellVoltage,
+    /// Cell 6 Filtered Voltage Result. Corresponds to `FC6V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc6v: types::FilteredCellVoltage,
+    #[bits(16, default = 0)]                                    _padding: u16,
+}
+
+/// Filtered Cell Voltage Register Group C (FCC). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 7-9.
+/// 
+/// See Table 71 on page 64 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfcc().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesC {
+    /// Cell 7 Filtered Voltage Result. Corresponds to `FC7V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc7v: types::FilteredCellVoltage,
+    /// Cell 8 Filtered Voltage Result. Corresponds to `FC8V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc8v: types::FilteredCellVoltage,
+    /// Cell 9 Filtered Voltage Result. Corresponds to `FC9V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc9v: types::FilteredCellVoltage,
+    #[bits(16, default = 0)]                                    _padding: u16,
+}
+
+/// Filtered Cell Voltage Register Group D (FCD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 10-12.
+/// 
+/// See Table 72 on page 64 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfcd().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesD {
+    /// Cell 10 Filtered Voltage Result. Corresponds to `FC10V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc10v: types::FilteredCellVoltage,
+    /// Cell 11 Filtered Voltage Result. Corresponds to `FC11V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc11v: types::FilteredCellVoltage,
+    /// Cell 12 Filtered Voltage Result. Corresponds to `FC12V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc12v: types::FilteredCellVoltage,
+    #[bits(16, default = 0)]                                    _padding: u16,
+}
+
+/// Filtered Cell Voltage Register Group E (FCE). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 13-15.
+/// 
+/// See Table 73 on page 64 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfce().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesE {
+    /// Cell 13 Filtered Voltage Result. Corresponds to `FC13V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc13v: types::FilteredCellVoltage,
+    /// Cell 14 Filtered Voltage Result. Corresponds to `FC14V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc14v: types::FilteredCellVoltage,
+    /// Cell 15 Filtered Voltage Result. Corresponds to `FC15V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc15v: types::FilteredCellVoltage,
+    #[bits(16, default = 0)]                                    _padding: u16,
+}
+
+/// Filtered Cell Voltage Register Group F (FCF). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Just contains cell 16.
+/// 
+/// See Table 74 on page 64 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::filtered_cell_voltage::rdfcf().frame(),
+)]
+#[bitfield(u64)]
+pub struct FilteredCellVoltagesF {
+    /// Cell 16 Filtered Voltage Result. Corresponds to `FC16V[15:0]`.
+    #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc16v: types::FilteredCellVoltage,
+    #[bits(32, default = u32::MAX)]                     _reserved: u32,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// All filtered cell voltage results (Filtered Cell Voltage Register Group A through F).
+#[register_group_aggregate(
+    read = commands::filtered_cell_voltage::rdfcall().frame(),
+)]
+#[derive(Clone, Copy, Debug)]
+pub struct FilteredCellVoltagesAll {
+    /// Cells 1–3 (Filtered Cell Voltage Register Group A).
+    pub a: FilteredCellVoltagesA,
+    /// Cells 4–6 (Filtered Cell Voltage Register Group B).
+    pub b: FilteredCellVoltagesB,
+    /// Cells 7–9 (Filtered Cell Voltage Register Group C).
+    pub c: FilteredCellVoltagesC,
+    /// Cells 10–12 (Filtered Cell Voltage Register Group D).
+    pub d: FilteredCellVoltagesD,
+    /// Cells 13–15 (Filtered Cell Voltage Register Group E).
+    pub e: FilteredCellVoltagesE,
+    /// Cell 16 (Filtered Cell Voltage Register Group F).
+    /// 
+    /// There's only 1 cell in Filtered Cell Voltage Register Group F, so this type has to be `types::FilteredCellVoltage` instead of `FilteredCellVoltagesF`.
+    /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
+    pub f: types::FilteredCellVoltage,
 }
