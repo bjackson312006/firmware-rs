@@ -64,6 +64,74 @@ pub mod types {
         signed as i32 * LSB_MICROVOLTS + OFFSET_MICROVOLTS
     }
 
+    /// Microvolts per VPV code increment. This is `25 × 150 µV` because of the VPV gain factor.
+    const VPV_LSB_MICROVOLTS: i32 = 3_750;
+    /// The offset of the VPV measurement formula (`25 × +1.5 V` = +37.5 V).
+    const VPV_OFFSET_MICROVOLTS: i32 = 37_500_000;
+
+    /// Max voltage VPV can represent in microvolts.
+    /// This is around +160,376,250 uV / +160.37625 V (raw code 0x7FFF).
+    const VPV_MAX_MICROVOLTS: i32 = 160_376_250;
+
+    /// Min voltage VPV can represent. This is around -85,380,000 uV, or around -85.38 V (raw code 0x8000).
+    const VPV_MIN_MICROVOLTS: i32 = -85_380_000;
+
+    /// Takes in a desired `VPV` (V+ to V−) voltage in microvolts, and returns the raw 16-bit code.
+    /// This is for `VPV` only. See Table 104 on page 71 of the datasheet.
+    ///
+    /// This is based on the equation from the datasheet (`VPV` is the raw signed 16-bit ADC code):
+    /// V+ to V- = 25 x (VPV x 150uV + 1.5V) = VPV x 3750uV + 37.5V.
+    /// - The voltage is in Volts.
+    /// - VPV is a signed 16-bit (two's complement) ADC code, gained up by 25x.
+    ///
+    /// The inverse (with `x` in microvolts) is:
+    /// VPV(x) = ((x - 37_500_000) / 3750)     (with the result being rounded cus 3750 probably wont divide cleanly most the time)
+    ///
+    /// This will return `None` if the microvolts input is outside the representable range.
+    const fn vpv_voltage_from_microvolts(microvolts: i32) -> Option<u16> {
+        if microvolts < VPV_MIN_MICROVOLTS || microvolts > VPV_MAX_MICROVOLTS { return None; }
+
+        let numerator = microvolts - VPV_OFFSET_MICROVOLTS;
+        let code = if numerator >= 0 {
+            (numerator + VPV_LSB_MICROVOLTS / 2) / VPV_LSB_MICROVOLTS
+        } else {
+            (numerator - VPV_LSB_MICROVOLTS / 2) / VPV_LSB_MICROVOLTS
+        };
+
+        // Store the two's complement representation.
+        Some(code as i16 as u16)
+    }
+
+    /// Converts a raw 16-bit two's complement `VPV` code back into microvolts.
+    /// This is for `VPV` only. See Table 104 on page 71 of the datasheet.
+    ///
+    /// V+ to V- = 25 x (VPV x 150uV + 1.5V) = VPV x 3750uV + 37.5V.
+    const fn vpv_voltage_to_microvolts(code: u16) -> i32 {
+        let signed = code as i16; // turn the raw code into a signed i16
+        signed as i32 * VPV_LSB_MICROVOLTS + VPV_OFFSET_MICROVOLTS
+    }
+
+    /// Takes in a desired `VMV` (S1N to V−) voltage in microvolts, and returns the raw 16-bit code.
+    /// This is for `VMV` only. See Table 104 on page 71 of the datasheet.
+    ///
+    /// Uses the standard result formula:
+    /// S1N to V- = VMV x 150uV + 1.5V.
+    /// So this just delegates to `result_voltage_from_microvolts`.
+    ///
+    /// This will return `None` if the microvolts input is outside the representable range.
+    const fn vmv_voltage_from_microvolts(microvolts: i32) -> Option<u16> {
+        result_voltage_from_microvolts(microvolts)
+    }
+
+    /// Converts a raw 16-bit two's complement `VMV` code back into microvolts.
+    /// This is for `VMV` only. See Table 104 on page 71 of the datasheet.
+    ///
+    /// `VMV` shares the standard result formula (`VMV x 150uV + 1.5V`),
+    /// so this just delegates to `result_voltage_to_microvolts`.
+    const fn vmv_voltage_to_microvolts(code: u16) -> i32 {
+        result_voltage_to_microvolts(code)
+    }
+
     /// Represents a cell voltage result (CxV). The voltage represented by this struct can be returned via `as_microvolts()`.
     /// 
     /// This is a 16-bit ADC measurement value for Cell `x`. Cell voltage for Cell `x` = CxV x 150uV + 1.5V.
@@ -248,13 +316,13 @@ pub mod types {
         }
     }
 
-    /// Represents a Redundant GPIO voltage result (GxV, R_GxV). The voltage represented by this struct can be returned via `as_microvolts()`.
+    /// Represents a GPIO voltage result (GxV, R_GxV). The voltage represented by this struct can be returned via `as_microvolts()`.
     /// 
-    /// This is a 16-bit ADC measurement value for (redundant) GPIOx voltage for GPIOx = GxV x 150 uV + 1.5 V.
+    /// This is a 16-bit ADC measurement value for GPIOx voltage for GPIOx = GxV x 150 uV + 1.5 V.
     #[bitfield(u16)]
-    pub struct RedundantGpioVoltage { #[bits(16, default = 0x8000)]  inner: u16 }
-    impl RedundantGpioVoltage {
-        pub const DEFAULT: RedundantGpioVoltage = Self::new();
+    pub struct GpioVoltage { #[bits(16, default = 0x8000)]  inner: u16 }
+    impl GpioVoltage {
+        pub const DEFAULT: GpioVoltage = Self::new();
 
         // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
         /// The number of protocol bytes this result value occupies.
@@ -271,17 +339,17 @@ pub mod types {
         /// This is around +6,415,050 uV / +6.41505 V.
         pub const MAX_MICROVOLTS: i32 = MAX_MICROVOLTS;
 
-        /// Converts a `RedundantGpioVoltage` to microvolts.
+        /// Converts a `GpioVoltage` to microvolts.
         pub const fn as_microvolts(&self) -> i32 {
             result_voltage_to_microvolts(self.inner())
         }
 
-        /// Creates a new `RedundantGpioVoltage` from an input value in uV.
+        /// Creates a new `GpioVoltage` from an input value in uV.
         /// 
-        /// `RedundantGpioVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
+        /// `GpioVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
         /// 
         /// ### Parameters
-        /// - `microvolts`: Redundant GPIO voltage, in uV. May be negative.
+        /// - `microvolts`: GPIO voltage, in uV. May be negative.
         /// 
         /// This function will return `None` if your input is outside the `MIN_MICROVOLTS`
         /// to `MAX_MICROVOLTS` range.
