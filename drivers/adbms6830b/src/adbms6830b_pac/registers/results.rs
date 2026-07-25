@@ -2,6 +2,12 @@
 //! 
 //! For more info about these registers, see Table 104 on page 71 of the datasheet
 //! and Tables 57 through 88 on pages 61 through 67 of the datasheet.
+//! 
+//! ### Getting Started/Cool Tips
+//! - If you want to read all cell voltages, send a `CellVoltagesAllReadRequest`, and then read in the response
+//! as a `CellVoltagesAllReadResponse`.
+//! - There's also `AverageCellVoltagesReadRequest`/`AverageCellVoltagesReadResponse`, `FilteredCellVoltagesReadRequest`/`FilteredCellVoltagesReadResponse`, etc.
+//! - If you want to read a specific cell register group, there's types like `CellVoltagesAReadRequest`/`CellVoltagesAReadResponse`, `CellVoltagesBReadRequest`/`CellVoltagesBReadResponse`, etc.
 
 use bitfield_struct::{bitfield, bitenum};
 use adbms6830b_macros::BitfieldEnumDefault;
@@ -430,6 +436,152 @@ pub struct CellVoltagesAll {
     /// Cell 16 (Cell Voltage Register Group F).
     /// 
     /// There's only 1 cell in Cell Voltage Register Group F, so this type has to be `types::CellVoltage` instead of `CellVoltagesF`.
-    /// Otherwise the serialization would get messed up.
+    /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
     pub f: types::CellVoltage,
+}
+
+/// Avergage Cell Voltage Register Group A (ACA). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 1-3.
+/// 
+/// See Table 63 on page 62 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdaca().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesA {
+    /// Cell 1 Average Voltage Result. Corresponds to `AC1V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac1v: types::AverageCellVoltage,
+    /// Cell 2 Average Voltage Result. Corresponds to `AC2V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac2v: types::AverageCellVoltage,
+    /// Cell 3 Average Voltage Result. Corresponds to `AC3V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac3v: types::AverageCellVoltage,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// Avergage Cell Voltage Register Group B (ACB). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 4-6.
+/// 
+/// See Table 64 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdacb().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesB {
+    /// Cell 4 Average Voltage Result. Corresponds to `AC4V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac4v: types::AverageCellVoltage,
+    /// Cell 5 Average Voltage Result. Corresponds to `AC5V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac5v: types::AverageCellVoltage,
+    /// Cell 6 Average Voltage Result. Corresponds to `AC6V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac6v: types::AverageCellVoltage,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// Avergage Cell Voltage Register Group C (ACC). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 7-9.
+/// 
+/// See Table 65 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdacc().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesC {
+    /// Cell 7 Average Voltage Result. Corresponds to `AC7V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac7v: types::AverageCellVoltage,
+    /// Cell 8 Average Voltage Result. Corresponds to `AC8V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac8v: types::AverageCellVoltage,
+    /// Cell 9 Average Voltage Result. Corresponds to `AC9V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac9v: types::AverageCellVoltage,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// Avergage Cell Voltage Register Group D (ACD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 10-12.
+/// 
+/// See Table 66 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdacd().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesD {
+    /// Cell 10 Average Voltage Result. Corresponds to `AC10V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac10v: types::AverageCellVoltage,
+    /// Cell 11 Average Voltage Result. Corresponds to `AC11V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac11v: types::AverageCellVoltage,
+    /// Cell 12 Average Voltage Result. Corresponds to `AC12V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac12v: types::AverageCellVoltage,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// Avergage Cell Voltage Register Group E (ACE). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains cells 13-15.
+/// 
+/// See Table 67 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdace().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesE {
+    /// Cell 13 Average Voltage Result. Corresponds to `AC13V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac13v: types::AverageCellVoltage,
+    /// Cell 14 Average Voltage Result. Corresponds to `AC14V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac14v: types::AverageCellVoltage,
+    /// Cell 15 Average Voltage Result. Corresponds to `AC15V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac15v: types::AverageCellVoltage,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// Average Cell Voltage Register Group F (ACF). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Just contains cell 16.
+/// 
+/// See Table 68 on page 63 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::avg_cell_voltage::rdacf().frame(),
+)]
+#[bitfield(u64)]
+pub struct AverageCellVoltagesF {
+    /// Cell 16 Average Voltage Result. Corresponds to `AC16V[15:0]`.
+    #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac16v: types::AverageCellVoltage,
+    #[bits(32, default = u32::MAX)]                     _reserved: u32,
+    #[bits(16, default = 0)]                            _padding: u16,
+}
+
+/// All average cell voltage results (Average Cell Voltage Register Group A through F).
+#[register_group_aggregate(
+    read = commands::avg_cell_voltage::rdacall().frame(),
+)]
+#[derive(Clone, Copy, Debug)]
+pub struct AverageCellVoltagesAll {
+    /// Cells 1–3 (Average Cell Voltage Register Group A).
+    pub a: AverageCellVoltagesA,
+    /// Cells 4–6 (Average Cell Voltage Register Group B).
+    pub b: AverageCellVoltagesB,
+    /// Cells 7–9 (Average Cell Voltage Register Group C).
+    pub c: AverageCellVoltagesC,
+    /// Cells 10–12 (Average Cell Voltage Register Group D).
+    pub d: AverageCellVoltagesD,
+    /// Cells 13–15 (Average Cell Voltage Register Group E).
+    pub e: AverageCellVoltagesE,
+    /// Cell 16 (Average Cell Voltage Register Group F).
+    /// 
+    /// There's only 1 cell in Average Cell Voltage Register Group F, so this type has to be `types::AverageCellVoltage` instead of `AverageCellVoltagesF`.
+    /// Otherwise the serialization would get messed up. Sad! This is bothering me but I may have OCD.
+    pub f: types::AverageCellVoltage,
 }
