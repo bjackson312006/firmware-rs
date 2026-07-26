@@ -197,7 +197,7 @@ pub mod types {
 #[register_group(
     bytes = 6,
     write = Some(commands::config::wrcfga().frame()),
-    read = commands::config::rdcfga().frame(),
+    read = Some(commands::config::rdcfga().frame()),
 )]
 #[bitfield(u64)]
 pub struct ConfigA {

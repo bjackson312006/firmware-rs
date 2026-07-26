@@ -216,7 +216,7 @@ pub mod types {
 #[register_group(
     bytes = 6,
     write = Some(commands::config::wrcfgb().frame()),
-    read = commands::config::rdcfgb().frame(),
+    read = Some(commands::config::rdcfgb().frame()),
 )]
 #[bitfield(u64)]
 pub struct ConfigB {

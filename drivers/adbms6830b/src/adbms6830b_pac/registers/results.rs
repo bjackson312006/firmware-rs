@@ -398,7 +398,7 @@ pub mod types {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcva().frame(),
+    read = Some(commands::cell_voltage::rdcva().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesA {
@@ -419,7 +419,7 @@ pub struct CellVoltagesA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcvb().frame(),
+    read = Some(commands::cell_voltage::rdcvb().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesB {
@@ -440,7 +440,7 @@ pub struct CellVoltagesB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcvc().frame(),
+    read = Some(commands::cell_voltage::rdcvc().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesC {
@@ -461,7 +461,7 @@ pub struct CellVoltagesC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcvd().frame(),
+    read = Some(commands::cell_voltage::rdcvd().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesD {
@@ -482,7 +482,7 @@ pub struct CellVoltagesD {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcve().frame(),
+    read = Some(commands::cell_voltage::rdcve().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesE {
@@ -503,7 +503,7 @@ pub struct CellVoltagesE {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::cell_voltage::rdcvf().frame(),
+    read = Some(commands::cell_voltage::rdcvf().frame()),
 )]
 #[bitfield(u64)]
 pub struct CellVoltagesF {
@@ -515,7 +515,8 @@ pub struct CellVoltagesF {
 
 /// All cell voltage results (Cell Voltage Register Group A through F).
 #[register_group_aggregate(
-    read = commands::cell_voltage::rdcvall().frame(),
+    write = None,
+    read = Some(commands::cell_voltage::rdcvall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
 pub struct CellVoltagesAll {
@@ -544,7 +545,7 @@ pub struct CellVoltagesAll {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdaca().frame(),
+    read = Some(commands::avg_cell_voltage::rdaca().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesA {
@@ -565,7 +566,7 @@ pub struct AverageCellVoltagesA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdacb().frame(),
+    read = Some(commands::avg_cell_voltage::rdacb().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesB {
@@ -586,7 +587,7 @@ pub struct AverageCellVoltagesB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdacc().frame(),
+    read = Some(commands::avg_cell_voltage::rdacc().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesC {
@@ -607,7 +608,7 @@ pub struct AverageCellVoltagesC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdacd().frame(),
+    read = Some(commands::avg_cell_voltage::rdacd().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesD {
@@ -628,7 +629,7 @@ pub struct AverageCellVoltagesD {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdace().frame(),
+    read = Some(commands::avg_cell_voltage::rdace().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesE {
@@ -649,7 +650,7 @@ pub struct AverageCellVoltagesE {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::avg_cell_voltage::rdacf().frame(),
+    read = Some(commands::avg_cell_voltage::rdacf().frame()),
 )]
 #[bitfield(u64)]
 pub struct AverageCellVoltagesF {
@@ -661,7 +662,8 @@ pub struct AverageCellVoltagesF {
 
 /// All average cell voltage results (Average Cell Voltage Register Group A through F).
 #[register_group_aggregate(
-    read = commands::avg_cell_voltage::rdacall().frame(),
+    write = None,
+    read = Some(commands::avg_cell_voltage::rdacall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
 pub struct AverageCellVoltagesAll {
@@ -690,7 +692,7 @@ pub struct AverageCellVoltagesAll {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfca().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfca().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesA {
@@ -711,7 +713,7 @@ pub struct FilteredCellVoltagesA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfcb().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfcb().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesB {
@@ -732,7 +734,7 @@ pub struct FilteredCellVoltagesB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfcc().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfcc().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesC {
@@ -753,7 +755,7 @@ pub struct FilteredCellVoltagesC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfcd().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfcd().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesD {
@@ -774,7 +776,7 @@ pub struct FilteredCellVoltagesD {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfce().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfce().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesE {
@@ -795,7 +797,7 @@ pub struct FilteredCellVoltagesE {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::filtered_cell_voltage::rdfcf().frame(),
+    read = Some(commands::filtered_cell_voltage::rdfcf().frame()),
 )]
 #[bitfield(u64)]
 pub struct FilteredCellVoltagesF {
@@ -807,7 +809,8 @@ pub struct FilteredCellVoltagesF {
 
 /// All filtered cell voltage results (Filtered Cell Voltage Register Group A through F).
 #[register_group_aggregate(
-    read = commands::filtered_cell_voltage::rdfcall().frame(),
+    write = None,
+    read = Some(commands::filtered_cell_voltage::rdfcall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
 pub struct FilteredCellVoltagesAll {
@@ -836,7 +839,7 @@ pub struct FilteredCellVoltagesAll {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsva().frame(),
+    read = Some(commands::s_voltage::rdsva().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesA {
@@ -857,7 +860,7 @@ pub struct SVoltagesA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsvb().frame(),
+    read = Some(commands::s_voltage::rdsvb().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesB {
@@ -878,7 +881,7 @@ pub struct SVoltagesB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsvc().frame(),
+    read = Some(commands::s_voltage::rdsvc().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesC {
@@ -899,7 +902,7 @@ pub struct SVoltagesC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsvd().frame(),
+    read = Some(commands::s_voltage::rdsvd().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesD {
@@ -920,7 +923,7 @@ pub struct SVoltagesD {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsve().frame(),
+    read = Some(commands::s_voltage::rdsve().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesE {
@@ -941,7 +944,7 @@ pub struct SVoltagesE {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::s_voltage::rdsvf().frame(),
+    read = Some(commands::s_voltage::rdsvf().frame()),
 )]
 #[bitfield(u64)]
 pub struct SVoltagesF {
@@ -953,7 +956,8 @@ pub struct SVoltagesF {
 
 /// All S-voltage results (S-Voltage Register Group A through F).
 #[register_group_aggregate(
-    read = commands::s_voltage::rdsall().frame(),
+    write = None,
+    read = Some(commands::s_voltage::rdsall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
 pub struct SVoltagesAll {
@@ -982,7 +986,7 @@ pub struct SVoltagesAll {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::aux::rdauxa().frame(),
+    read = Some(commands::aux::rdauxa().frame()),
 )]
 #[bitfield(u64)]
 pub struct AuxillaryA {
@@ -1003,7 +1007,7 @@ pub struct AuxillaryA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::aux::rdauxb().frame(),
+    read = Some(commands::aux::rdauxb().frame()),
 )]
 #[bitfield(u64)]
 pub struct AuxillaryB {
@@ -1024,7 +1028,7 @@ pub struct AuxillaryB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::aux::rdauxc().frame(),
+    read = Some(commands::aux::rdauxc().frame()),
 )]
 #[bitfield(u64)]
 pub struct AuxillaryC {
@@ -1045,7 +1049,7 @@ pub struct AuxillaryC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::aux::rdauxd().frame(),
+    read = Some(commands::aux::rdauxd().frame()),
 )]
 #[bitfield(u64)]
 pub struct AuxillaryD {
@@ -1066,7 +1070,7 @@ pub struct AuxillaryD {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::redundant_aux::rdraxa().frame(),
+    read = Some(commands::redundant_aux::rdraxa().frame()),
 )]
 #[bitfield(u64)]
 pub struct RedundantAuxillaryA {
@@ -1087,7 +1091,7 @@ pub struct RedundantAuxillaryA {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::redundant_aux::rdraxb().frame(),
+    read = Some(commands::redundant_aux::rdraxb().frame()),
 )]
 #[bitfield(u64)]
 pub struct RedundantAuxillaryB {
@@ -1108,7 +1112,7 @@ pub struct RedundantAuxillaryB {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::redundant_aux::rdraxc().frame(),
+    read = Some(commands::redundant_aux::rdraxc().frame()),
 )]
 #[bitfield(u64)]
 pub struct RedundantAuxillaryC {
@@ -1129,12 +1133,12 @@ pub struct RedundantAuxillaryC {
 #[register_group(
     bytes = 6,
     write = None,
-    read = commands::redundant_aux::rdraxd().frame(),
+    read = Some(commands::redundant_aux::rdraxd().frame()),
 )]
 #[bitfield(u64)]
 pub struct RedundantAuxillaryD {
     /// GPIO 10 Voltage Result. Corresponds to `R_G10V[15:0]`.
-    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]    pub g10v: types::RedundantGpioVoltage,
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]    pub r_g10v: types::RedundantGpioVoltage,
     #[bits(32, default = u32::MAX)]                                _reserved: u32,
     #[bits(16, default = 0)]                                       _padding: u16,
 }

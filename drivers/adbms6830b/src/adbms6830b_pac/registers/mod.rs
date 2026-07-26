@@ -10,6 +10,8 @@ use adbms6830b_macros::{register_group, register_group_aggregate};
 pub enum RegisterKind {
     /// The register group can only be read from.
     ReadOnly,
+    /// The register group can only be written to (not a joke).
+    WriteOnly,
     /// The register group can be read from and written to.
     ReadWrite,
 }
