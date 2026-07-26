@@ -1057,3 +1057,84 @@ pub struct AuxillaryD {
     #[bits(16, default = types::VPlusVoltage::DEFAULT)]   pub vpv: types::VPlusVoltage,
     #[bits(16, default = 0)]                              _padding: u16,
 }
+
+/// Redundant Auxillary Register Group A (RAXA). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains GPIOs 1-3.
+/// 
+/// See Table 85 on page 66 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::redundant_aux::rdraxa().frame(),
+)]
+#[bitfield(u64)]
+pub struct RedundantAuxillaryA {
+    /// GPIO 1 Voltage Result. Corresponds to `R_G1V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g1v: types::RedundantGpioVoltage,
+    /// GPIO 2 Voltage Result. Corresponds to `R_G2V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g2v: types::RedundantGpioVoltage,
+    /// GPIO 3 Voltage Result. Corresponds to `R_G3V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g3v: types::RedundantGpioVoltage,
+    #[bits(16, default = 0)]                                     _padding: u16,
+}
+
+/// Redundant Auxillary Register Group B (RAXB). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains GPIOs 4-6.
+/// 
+/// See Table 86 on page 67 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::redundant_aux::rdraxb().frame(),
+)]
+#[bitfield(u64)]
+pub struct RedundantAuxillaryB {
+    /// GPIO 4 Voltage Result. Corresponds to `R_G4V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g4v: types::RedundantGpioVoltage,
+    /// GPIO 5 Voltage Result. Corresponds to `R_G5V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g5v: types::RedundantGpioVoltage,
+    /// GPIO 6 Voltage Result. Corresponds to `R_G6V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g6v: types::RedundantGpioVoltage,
+    #[bits(16, default = 0)]                                     _padding: u16,
+}
+
+/// Redundant Auxillary Register Group C (RAXC). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Contains GPIOs 7-9.
+/// 
+/// See Table 87 on page 67 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::redundant_aux::rdraxc().frame(),
+)]
+#[bitfield(u64)]
+pub struct RedundantAuxillaryC {
+    /// GPIO 7 Voltage Result. Corresponds to `R_G7V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g7v: types::RedundantGpioVoltage,
+    /// GPIO 8 Voltage Result. Corresponds to `R_G8V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g8v: types::RedundantGpioVoltage,
+    /// GPIO 9 Voltage Result. Corresponds to `R_G9V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g9v: types::RedundantGpioVoltage,
+    #[bits(16, default = 0)]                                     _padding: u16,
+}
+
+/// Redundant Auxillary Register Group D (RAXD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Just contains GPIO 10.
+/// 
+/// See Table 88 on page 67 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = commands::redundant_aux::rdraxd().frame(),
+)]
+#[bitfield(u64)]
+pub struct RedundantAuxillaryD {
+    /// GPIO 10 Voltage Result. Corresponds to `R_G10V[15:0]`.
+    #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]    pub g10v: types::RedundantGpioVoltage,
+    #[bits(32, default = u32::MAX)]                                _reserved: u32,
+    #[bits(16, default = 0)]                                       _padding: u16,
+}
