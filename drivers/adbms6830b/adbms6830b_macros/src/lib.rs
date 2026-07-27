@@ -290,11 +290,11 @@ fn register_group_impl(
     input.attrs.extend(doc_attrs);
 
     // Big real paths so the generated code resolves regardless of the use site's imports.
-    let command_frame = quote!(crate::adbms6830b_pac::commands::CommandFrame);
-    let data_pec_tx = quote!(crate::adbms6830b_pac::pec::DataPecTx);
-    let data_pec_rx = quote!(crate::adbms6830b_pac::pec::DataPecRx);
-    let register_kind = quote!(crate::adbms6830b_pac::registers::RegisterKind);
-    let register_group_trait = quote!(crate::adbms6830b_pac::registers::RegisterGroup);
+    let command_frame = quote!(crate::chip::commands::CommandFrame);
+    let data_pec_tx = quote!(crate::chip::pec::DataPecTx);
+    let data_pec_rx = quote!(crate::chip::pec::DataPecRx);
+    let register_kind = quote!(crate::chip::registers::RegisterKind);
+    let register_group_trait = quote!(crate::chip::registers::RegisterGroup);
 
     // Byte offsets and lengths (computed via the declared `bytes` count).
     // Not using `size_of` here since that might include padding which would mess up the actual byte format
@@ -710,11 +710,11 @@ fn register_group_aggregate_impl(
     }
 
     // Fully-qualified paths so the generated code resolves regardless of the use site's imports.
-    let command_frame = quote!(crate::adbms6830b_pac::commands::CommandFrame);
-    let data_pec_tx = quote!(crate::adbms6830b_pac::pec::DataPecTx);
-    let data_pec_rx = quote!(crate::adbms6830b_pac::pec::DataPecRx);
-    let register_kind = quote!(crate::adbms6830b_pac::registers::RegisterKind);
-    let register_group_trait = quote!(crate::adbms6830b_pac::registers::RegisterGroup);
+    let command_frame = quote!(crate::chip::commands::CommandFrame);
+    let data_pec_tx = quote!(crate::chip::pec::DataPecTx);
+    let data_pec_rx = quote!(crate::chip::pec::DataPecRx);
+    let register_kind = quote!(crate::chip::registers::RegisterKind);
+    let register_group_trait = quote!(crate::chip::registers::RegisterGroup);
 
     let write_frame_ident = format_ident!("{}WriteFrame", name);
     let read_request_ident = format_ident!("{}ReadRequest", name);

@@ -25,7 +25,7 @@ pub trait RegisterGroup {
 }
 
 /// Module for internal shared helpers for the register types laid out in Table 107 on page 72 of the datasheet.
-pub(in crate::adbms6830b_pac) mod table107 {
+pub(in crate::chip) mod table107 {
     use bitfield_struct::bitfield;
 
     /// Internal type for the registers from the first row of Table 107.
@@ -33,7 +33,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
     /// `CxV`, `SxV`, `ACxV`, `FCxV`, `GxV`, `R_GxV`, `VREF2`, `VD`, `VA`, `VRES`, `VMV`
     #[bitfield(u16)]
     #[derive(PartialEq, Eq)]
-    pub(in crate::adbms6830b_pac) struct FirstRowRegisters { #[bits(16, default = 0x8000)] inner: u16 }
+    pub(in crate::chip) struct FirstRowRegisters { #[bits(16, default = 0x8000)] inner: u16 }
     impl FirstRowRegisters {
         /// Microvolts per register code increment.
         pub const REGISTER_LSB_MICROVOLTS: i32 = 150;
@@ -119,28 +119,28 @@ pub(in crate::adbms6830b_pac) mod table107 {
         ) => {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-            pub struct $structname { inner: $crate::adbms6830b_pac::registers::table107::FirstRowRegisters }
+            pub struct $structname { inner: $crate::chip::registers::table107::FirstRowRegisters }
             impl $structname {
-                pub const DEFAULT: $structname = Self { inner: $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::new() };
+                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::FirstRowRegisters::new() };
 
                 // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
                 /// The number of protocol bytes this result value occupies.
-                pub const BYTES: usize = $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::BYTES;
+                pub const BYTES: usize = $crate::chip::registers::table107::FirstRowRegisters::BYTES;
                 /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
                 pub const fn to_bytes(self) -> [u8; 2] { self.inner.to_bytes() }
                 /// Reconstructs from protocl bytes (little-endian).
-                pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self { inner: $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::from_bytes(bytes) } }
+                pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self { inner: $crate::chip::registers::table107::FirstRowRegisters::from_bytes(bytes) } }
                 /// Convert from bits.
-                pub const fn from_bits(bits: u16) -> Self { Self { inner: $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::from_bits(bits) } }
+                pub const fn from_bits(bits: u16) -> Self { Self { inner: $crate::chip::registers::table107::FirstRowRegisters::from_bits(bits) } }
                 /// Convert into bits.
                 pub const fn into_bits(self) -> u16 { self.inner.into_bits() }
 
                 /// Min voltage the register can represent. This is around -3,415,200 uV, or around -3.4152 V.
-                pub const MIN_MICROVOLTS: i32 = $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::MIN_MICROVOLTS;
+                pub const MIN_MICROVOLTS: i32 = $crate::chip::registers::table107::FirstRowRegisters::MIN_MICROVOLTS;
 
                 /// Max voltage the register can represent in microvolts.
                 /// This is around +6,415,050 uV / +6.41505 V.
-                pub const MAX_MICROVOLTS: i32 = $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::MAX_MICROVOLTS;
+                pub const MAX_MICROVOLTS: i32 = $crate::chip::registers::table107::FirstRowRegisters::MAX_MICROVOLTS;
 
                 #[doc = concat!("Converts a `", stringify!($structname), "` to microvolts.")]
                 pub const fn as_microvolts(&self) -> i32 { self.inner.as_microvolts() }
@@ -152,7 +152,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
                 /// This function will return `None` if your input is outside the `MIN_MICROVOLTS`
                 /// to `MAX_MICROVOLTS` range.
                 pub const fn from_microvolts(microvolts: i32) -> Option<Self> {
-                    match $crate::adbms6830b_pac::registers::table107::FirstRowRegisters::from_microvolts(microvolts) {
+                    match $crate::chip::registers::table107::FirstRowRegisters::from_microvolts(microvolts) {
                         Some(inner) => Some(Self { inner }),
                         None => None,
                     }
@@ -160,7 +160,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
             }
         }
     }
-    pub(in crate::adbms6830b_pac) use impl_firstrowregister;
+    pub(in crate::chip) use impl_firstrowregister;
 
     /// Private type for the `VPV` register type from Table 107 (row 4).
     /// 
@@ -168,7 +168,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
     /// consistency of this pattern so why not
     #[bitfield(u16)]
     #[derive(Eq, PartialEq)]
-    pub(in crate::adbms6830b_pac) struct VpvInner { #[bits(16, default = 0x8000)] inner: u16 }
+    pub(in crate::chip) struct VpvInner { #[bits(16, default = 0x8000)] inner: u16 }
     impl VpvInner {
         /// Microvolts per VPV code increment. This is `25 × 150 µV` because of the VPV gain factor.
         pub const VPV_LSB_MICROVOLTS: i32 = 3_750;
@@ -256,9 +256,9 @@ pub(in crate::adbms6830b_pac) mod table107 {
         ) => {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-            pub struct $structname { inner: $crate::adbms6830b_pac::registers::table107::VpvInner }
+            pub struct $structname { inner: $crate::chip::registers::table107::VpvInner }
             impl $structname {
-                pub const DEFAULT: $structname = Self { inner: $crate::adbms6830b_pac::registers::table107::VpvInner::new() };
+                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::VpvInner::new() };
 
                 // this stuff is usually needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`, but
                 // this type doesn't even need this since the register groups that use it don't have a "read all" command. Still gonna keep this stuff here though just in case.
@@ -267,18 +267,18 @@ pub(in crate::adbms6830b_pac) mod table107 {
                 /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
                 pub const fn to_bytes(self) -> [u8; 2] { self.inner.to_bytes() }
                 /// Reconstructs from protocl bytes (little-endian).
-                pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self { inner: $crate::adbms6830b_pac::registers::table107::VpvInner::from_bytes(bytes) } }
+                pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self { inner: $crate::chip::registers::table107::VpvInner::from_bytes(bytes) } }
                 /// Convert from bits.
-                pub const fn from_bits(bits: u16) -> Self { Self { inner: $crate::adbms6830b_pac::registers::table107::VpvInner::from_bits(bits) } }
+                pub const fn from_bits(bits: u16) -> Self { Self { inner: $crate::chip::registers::table107::VpvInner::from_bits(bits) } }
                 /// Convert into bits.
                 pub const fn into_bits(self) -> u16 { self.inner.into_bits() }
 
                 /// Min voltage the register can represent. This is around -85,380,000 uV, or around -85.38 V.
-                pub const VPV_MIN_MICROVOLTS: i32 = $crate::adbms6830b_pac::registers::table107::VpvInner::VPV_MIN_MICROVOLTS;
+                pub const VPV_MIN_MICROVOLTS: i32 = $crate::chip::registers::table107::VpvInner::VPV_MIN_MICROVOLTS;
 
                 /// Max voltage the register can represent in microvolts.
                 /// This is around +160,376,250 uV / +160.37625 V.
-                pub const VPV_MAX_MICROVOLTS: i32 = $crate::adbms6830b_pac::registers::table107::VpvInner::VPV_MAX_MICROVOLTS;
+                pub const VPV_MAX_MICROVOLTS: i32 = $crate::chip::registers::table107::VpvInner::VPV_MAX_MICROVOLTS;
 
                 #[doc = concat!("Converts a `", stringify!($structname), "` to microvolts.")]
                 pub const fn as_microvolts(&self) -> i32 { self.inner.as_microvolts() }
@@ -291,7 +291,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
                 /// This function will return `None` if your input is outside the `VPV_MIN_MICROVOLTS`
                 /// to `VPV_MAX_MICROVOLTS` range.
                 pub const fn from_microvolts(microvolts: i32) -> Option<Self> {
-                    match $crate::adbms6830b_pac::registers::table107::VpvInner::from_microvolts(microvolts) {
+                    match $crate::chip::registers::table107::VpvInner::from_microvolts(microvolts) {
                         Some(inner) => Some(Self { inner: inner }),
                         None => None,
                     }
@@ -299,7 +299,7 @@ pub(in crate::adbms6830b_pac) mod table107 {
             }
         }
     }
-    pub(in crate::adbms6830b_pac) use impl_vpvinner;
+    pub(in crate::chip) use impl_vpvinner;
 }
 
 pub mod config_a;

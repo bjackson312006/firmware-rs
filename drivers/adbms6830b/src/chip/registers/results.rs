@@ -18,7 +18,7 @@ use super::super::commands;
 /// Field types relavent to the Result Register groups. See Table 104 on page 71 of the datasheet.
 pub mod types {
     use super::{bitenum, bitfield, BitfieldEnumDefault};
-    use crate::adbms6830b_pac::registers::table107::{impl_firstrowregister, impl_vpvinner};
+    use crate::chip::registers::table107::{impl_firstrowregister, impl_vpvinner};
 
     impl_firstrowregister!(
         /// Represents a cell voltage result (CxV). The voltage represented by this struct can be returned via `as_microvolts()`.
