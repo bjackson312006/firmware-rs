@@ -33,7 +33,7 @@ pub(in crate::chip) mod table107 {
     /// `CxV`, `SxV`, `ACxV`, `FCxV`, `GxV`, `R_GxV`, `VREF2`, `VD`, `VA`, `VRES`, `VMV`
     #[bitfield(u16)]
     #[derive(PartialEq, Eq)]
-    pub(in crate::chip) struct FirstRowRegisters { #[bits(16, default = 0x8000)] inner: u16 }
+    pub(in crate::chip) struct FirstRowRegisters { #[bits(16)] pub inner: u16 }
     impl FirstRowRegisters {
         /// Microvolts per register code increment.
         pub const REGISTER_LSB_MICROVOLTS: i32 = 150;
@@ -112,16 +112,21 @@ pub(in crate::chip) mod table107 {
 
     /// This macro implements a newtype around a `FirstRowRegisters`. You can put docs in the macro
     /// to inject custom docs for the generated struct.
+    /// 
+    /// Ters:
+    /// - `ident`: name of the struct you wanna implement
+    /// - `default_value`: literal for the default value of the register (usually 0x8000 but probably also sometimes 0x7FFF)
     macro_rules! impl_firstrowregister {
         (
             $(#[$outer:meta])*
-            $structname:ident
+            $structname:ident,
+            $default_value:literal
         ) => {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
             pub struct $structname { inner: $crate::chip::registers::table107::FirstRowRegisters }
             impl $structname {
-                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::FirstRowRegisters::new() };
+                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::FirstRowRegisters::new().with_inner($default_value) };
 
                 // this stuff is needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`:
                 /// The number of protocol bytes this result value occupies.
@@ -168,7 +173,7 @@ pub(in crate::chip) mod table107 {
     /// consistency of this pattern so why not
     #[bitfield(u16)]
     #[derive(Eq, PartialEq)]
-    pub(in crate::chip) struct VpvInner { #[bits(16, default = 0x8000)] inner: u16 }
+    pub(in crate::chip) struct VpvInner { #[bits(16)] pub inner: u16 }
     impl VpvInner {
         /// Microvolts per VPV code increment. This is `25 × 150 µV` because of the VPV gain factor.
         pub const VPV_LSB_MICROVOLTS: i32 = 3_750;
@@ -249,16 +254,21 @@ pub(in crate::chip) mod table107 {
     }
 
     /// This macro implements a newtype around a `VpvInner`. You can put docs in the macro to inject custom docs for the generated struct.
+    /// 
+    /// Parm:
+    /// - `ident`: name of the struct you wanna implement
+    /// - `default_value`: literal for the default value of the register (should only be 0x8000 for VPV)
     macro_rules! impl_vpvinner {
         (
             $(#[$outer:meta])*
-            $structname:ident
+            $structname:ident,
+            $default_value:literal
         ) => {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
             pub struct $structname { inner: $crate::chip::registers::table107::VpvInner }
             impl $structname {
-                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::VpvInner::new() };
+                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::VpvInner::new().with_inner($default_value) };
 
                 // this stuff is usually needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`, but
                 // this type doesn't even need this since the register groups that use it don't have a "read all" command. Still gonna keep this stuff here though just in case.
@@ -305,3 +315,4 @@ pub(in crate::chip) mod table107 {
 pub mod config_a;
 pub mod config_b;
 pub mod results;
+pub mod status_a;

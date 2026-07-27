@@ -25,7 +25,8 @@ pub mod types {
         ///
         /// This is a 16-bit ADC measurement value for Cell `x`. Cell voltage for Cell `x` = CxV x 150uV + 1.5V.
         /// CxV is reset to 0x8000 on power-up and after clear command (CLRCELL), which corresponds to -3,415,200 uV / -3.4152 V.
-        CellVoltage
+        CellVoltage,
+        0x8000
     );
 
     impl_firstrowregister!(
@@ -33,7 +34,8 @@ pub mod types {
         /// 
         /// This is a 16-bit average of 8 conversion results for value Cell `x`. Averaged Cell voltage for Cell `x` = CxV x 150uV + 1.5V.
         /// ACxV is reset to 0x8000 on power-up and after clear command (CLRCELL), which corresponds to -3,415,200 uV / -3.4152 V.
-        AverageCellVoltage
+        AverageCellVoltage,
+        0x8000
     );
 
     impl_firstrowregister!(
@@ -41,7 +43,8 @@ pub mod types {
         /// 
         /// This is a 16-bit IIR filtered measurement value for Cell `x`. Filtered Cell voltage for Cell `x` = CxV x 150uV + 1.5V.
         /// FCxV is reset to 0x8000 on power-up and after clear command (CLRCELL), which corresponds to -3,415,200 uV / -3.4152 V.
-        FilteredCellVoltage
+        FilteredCellVoltage,
+        0x8000
     );
 
     impl_firstrowregister!(
@@ -49,7 +52,8 @@ pub mod types {
         /// 
         /// This is a 16-bit ADC measurement value for Sx pin from ADSV or ADCV commands. S-pin voltage for channel `x` = SxV x 150uV + 1.5V.
         /// SxV is reset to 0x8000 on power-up and after clear command (CLRCELL), which corresponds to -3,415,200 uV / -3.4152 V.
-        SVoltage
+        SVoltage,
+        0x8000
     );
 
     impl_firstrowregister!(
@@ -63,7 +67,8 @@ pub mod types {
         /// come from different register groups.
         /// 
         /// Also, if you're in a `const` context, prefer using `from_redundant()` instead of the `From`/`.into()` trait stuff.
-        GpioVoltage
+        GpioVoltage,
+        0x8000
     );
     impl From<RedundantGpioVoltage> for GpioVoltage {
         fn from(value: RedundantGpioVoltage) -> Self {
@@ -88,7 +93,8 @@ pub mod types {
         /// come from different register groups.
         /// 
         /// Also, if you're in a `const` context, prefer using `from_standard()` instead of the `From`/`.into()` trait stuff.
-        RedundantGpioVoltage
+        RedundantGpioVoltage,
+        0x8000
     );
     impl From<GpioVoltage> for RedundantGpioVoltage {
         fn from(value: GpioVoltage) -> Self {
@@ -108,7 +114,8 @@ pub mod types {
         /// This is a 16-bit ADC measurement value for S1N to V- = VMV x 150 uV + 1.5 V).
         /// 
         /// Reset to 0x8000 after power-up, sleep, or clear command (CLRAUX).
-        VMinusVoltage
+        VMinusVoltage,
+        0x8000
     );
 
     impl_vpvinner!(
@@ -117,7 +124,8 @@ pub mod types {
         /// This is a 16-bit ADC measurement value for V+ to V- = 25 x (VPV x 150 uV + 1.5 V).
         /// 
         /// Reset to 0x8000 after power-up, sleep, or clear command (CLRAUX).
-        VPlusVoltage
+        VPlusVoltage,
+        0x8000
     );
 }
 
