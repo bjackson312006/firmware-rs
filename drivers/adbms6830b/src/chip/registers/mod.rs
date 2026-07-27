@@ -231,14 +231,14 @@ pub(in crate::chip) mod table107 {
         /// Reconstructs from protocl bytes (little-endian).
         pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
 
-        /// Converts a `VPlusVoltage` to microvolts.
+        /// Converts a `VpvInner` to microvolts.
         pub const fn as_microvolts(&self) -> i32 {
             Self::vpv_voltage_to_microvolts(self.inner())
         }
 
-        /// Creates a new `VPlusVoltage` from an input value in uV.
+        /// Creates a new `VpvInner` from an input value in uV.
         /// 
-        /// `VPlusVoltage` is read-only so you probably shouldn't need to use this but it's here just in case.
+        /// `VpvInner` is read-only so you probably shouldn't need to use this but it's here just in case.
         /// 
         /// ### Parameters
         /// - `microvolts`: VPV voltage, in uV. May be negative.
@@ -310,6 +310,144 @@ pub(in crate::chip) mod table107 {
         }
     }
     pub(in crate::chip) use impl_vpvinner;
+
+    /// Private type for the `ITMP` register type from Table 107 (row 5).
+    /// 
+    /// Like `VpvInner` this type probably doesn't justify its existence since the ITMP math seems to only be used
+    /// in one place (for the ITMP type in Status Register A). But I like having this convention!
+    #[bitfield(u16)]
+    #[derive(Eq, PartialEq)]
+    pub(in crate::chip) struct ItmpInner { #[bits(16)] pub inner: u16 }
+    impl ItmpInner {
+        // yada yada see table 107
+        // Also, i'm using "microcelsius" here because the chip uses degrees celsius as its unit for temp
+        // Many will say microcelsius isnt a real unit but they are closed minded
+        pub const ITMP_LSB_MICROCELSIUS: i32 = 20_000;
+        pub const ITMP_OFFSET_MICROCELSIUS: i32 = -73_000_000;
+        pub const ITMP_MAX_MICROCELSIUS: i32 = 582_340_000;
+        pub const ITMP_MIN_MICROCELSIUS: i32 = -728_360_000;
+
+        /// Takes in a desired `ITMP` value in microcelsius and converts it into the raw 16-bit code.
+        /// This will return `None` if the microcelsius input is outside the representable range.
+        /// 
+        /// See the math in the ITMP row in Table 105 on page 72 of the datasheet:
+        /// Temoerature measurement voltage = (ITMP x 150 uV + 1.5 V)/7.5 mV/C - 273 C
+        /// Becomes Code = (microcelsius + 73_000_000) / 20_000
+        const fn itmp_temp_from_microcelsius(microcelsius: i32) -> Option<u16> {
+            if microcelsius < Self::ITMP_MIN_MICROCELSIUS || microcelsius > Self::ITMP_MAX_MICROCELSIUS { return None; }
+
+            let numerator = microcelsius - Self::ITMP_OFFSET_MICROCELSIUS;
+
+            // cool rounding
+            let code = if numerator >= 0 {
+                (numerator + Self::ITMP_LSB_MICROCELSIUS / 2) / Self::ITMP_LSB_MICROCELSIUS
+            } else {
+                (numerator - Self::ITMP_LSB_MICROCELSIUS / 2) / Self::ITMP_LSB_MICROCELSIUS
+            };
+
+            // Store the two's complement representation.
+            Some(code as i16 as u16)
+        }
+
+        /// Converts a raw 16-bit two's complement `ITMP` code back into microcelsius.
+        ///
+        /// See the ITMP row of Table 105 on page 72 of the datasheet:
+        /// Temperature measurement voltage = (ITMP x 150uV + 1.5V) / 7.5mV/C - 273 C
+        /// Becomes Temp (microcelsius) = ITMP x 20_000 - 73_000_000
+        const fn itmp_temp_to_microcelsius(code: u16) -> i32 {
+            let signed = code as i16; // turn the raw code into a signed i16
+            signed as i32 * Self::ITMP_LSB_MICROCELSIUS + Self::ITMP_OFFSET_MICROCELSIUS
+        }
+
+        // this stuff is usually needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`, but
+        // this type doesn't even need this since the register groups that use it don't have a "read all" command. Still gonna keep this stuff here though just in case.
+        /// The number of protocol bytes this result value occupies.
+        pub const BYTES: usize = 2;
+        /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+        pub const fn to_bytes(self) -> [u8; 2] { self.into_bits().to_le_bytes() }
+        /// Reconstructs from protocl bytes (little-endian).
+        pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self::from_bits(u16::from_le_bytes(bytes)) }
+
+        /// Converts a `ItmpInner` to microcelsius.
+        pub const fn as_microcelsius(&self) -> i32 {
+            Self::itmp_temp_to_microcelsius(self.inner())
+        }
+
+        /// Creates a new `ItmpInner` from an input value in microcelsius.
+        /// 
+        /// `ItmpInner` is read-only so you probably shouldn't need to use this but it's here just in case.
+        /// 
+        /// ### Parameters
+        /// - `microcelsius`: ITMP temperature, in microcelsius. May be negative.
+        /// 
+        /// This function will return `None` if your input is outside the `ITMP_MIN_MICROCELSIUS`
+        /// to `ITMP_MAX_MICROCELSIUS` range.
+        pub const fn from_microcelsius(microcelsius: i32) -> Option<Self> {
+            match Self::itmp_temp_from_microcelsius(microcelsius) {
+                Some(inner) => Some(Self::new().with_inner(inner)),
+                None => None,
+            }
+        }
+    }
+
+    /// This macro implements a newtype around a `ItmpInner`. You can put docs in the macro to inject custom docs for the generated struct.
+    /// 
+    /// Parm:
+    /// - `ident`: name of the struct you wanna implement
+    /// - `default_value`: literal for the default value of the register (should only be 0x7FFF for ITMP)
+    macro_rules! impl_itmpinner {
+        (
+            $(#[$outer:meta])*
+            $structname:ident,
+            $default_value:literal
+        ) => {
+            $(#[$outer])*
+            #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+            pub struct $structname { inner: $crate::chip::registers::table107::ItmpInner }
+            impl $structname {
+                pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::ItmpInner::new().with_inner($default_value) };
+
+                // this stuff is usually needed for the "read all" command and the associated serialization via `#[register_group_aggregate]`, but
+                // this type doesn't even need this since the register groups that use it don't have a "read all" command. Still gonna keep this stuff here though just in case.
+                /// The number of protocol bytes this result value occupies.
+                pub const BYTES: usize = 2;
+                /// Serializes into protocol bytes (little-endian) since this is the datasheet register order.
+                pub const fn to_bytes(self) -> [u8; 2] { self.inner.to_bytes() }
+                /// Reconstructs from protocl bytes (little-endian).
+                pub const fn from_bytes(bytes: [u8; 2]) -> Self { Self { inner: $crate::chip::registers::table107::ItmpInner::from_bytes(bytes) } }
+                /// Convert from bits.
+                pub const fn from_bits(bits: u16) -> Self { Self { inner: $crate::chip::registers::table107::ItmpInner::from_bits(bits) } }
+                /// Convert into bits.
+                pub const fn into_bits(self) -> u16 { self.inner.into_bits() }
+
+                /// Min temperature the register can represent in microcelsius.
+                pub const ITMP_MIN_MICROCELSIUS: i32 = $crate::chip::registers::table107::ItmpInner::ITMP_MIN_MICROCELSIUS;
+
+                /// Max temperature the register can represent in microcelsius.
+                pub const ITMP_MAX_MICROCELSIUS: i32 = $crate::chip::registers::table107::ItmpInner::ITMP_MAX_MICROCELSIUS;
+
+                #[doc = concat!("Converts a `", stringify!($structname), "` to microcelsius. Microcelsius is a real unit to those who believe")]
+                pub const fn as_microcelsius(&self) -> i32 { self.inner.as_microcelsius() }
+
+                #[doc = concat!("Creates a new `", stringify!($structname), "` from an input value in microcelsius.\n")]
+                /// 
+                /// ### Parameters
+                /// - `microcelsius`: ITMP temperature, in microcelsius. May be negative.
+                /// 
+                /// This function will return `None` if your input is outside the `ITMP_MIN_MICROCELSIUS`
+                /// to `ITMP_MAX_MICROCELSIUS` range.
+                /// 
+                /// ![image](https://upload.wikimedia.org/wikipedia/commons/8/81/Headshot_of_Anders_Celsius.jpg)
+                pub const fn from_microcelsius(microcelsius: i32) -> Option<Self> {
+                    match $crate::chip::registers::table107::ItmpInner::from_microcelsius(microcelsius) {
+                        Some(inner) => Some(Self { inner: inner }),
+                        None => None,
+                    }
+                }
+            }
+        }
+    }
+    pub(in crate::chip) use impl_itmpinner;
 }
 
 pub mod config_a;
