@@ -66,7 +66,7 @@ pub mod types {
     /// This type provides the `from_microvolts()` function to construct a `UndervoltageThreshold` based on a desired
     /// undervoltage threshold in uV. If you want to construct the raw VUV[11:0] field value directly, use `with_value()`.
     /// 
-    /// /// This type also provides the `as_microvolts()` function to convert an `UndervoltageThreshold` into microvolts (could be useful on reads).
+    /// This type also provides the `as_microvolts()` function to convert an `UndervoltageThreshold` into microvolts (could be useful on reads).
     /// 
     /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V (VUV is signed two's complement).
     #[bitfield(u16)]

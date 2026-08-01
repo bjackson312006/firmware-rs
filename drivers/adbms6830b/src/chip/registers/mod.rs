@@ -453,4 +453,4 @@ pub(in crate::chip) mod table107 {
 pub mod config_a;
 pub mod config_b;
 pub mod results;
-pub mod status_a;
+pub mod status;
