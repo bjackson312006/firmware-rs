@@ -88,6 +88,31 @@
 //! `daisychain_data_block()` builds a single device's data-plus-PEC block if you need to assemble a
 //! frame yourself. You should typically use `daisychain_serialize()` though.
 //!
+//! ### Read-all aggregates are single-IC only
+//!
+//! The aggregate types (`CellVoltagesAll`, `SVoltagesAll`, and friends) have **no** `daisychain_*`
+//! helpers, because the read-all commands they wrap cannot be used on a chain at all. Per the READ ALL
+//! COMMANDS section of the datasheet, they are supported "for single IC applications" only, and the
+//! section above it calls this out again: coherent reads come "either using the read all commands (for
+//! single IC applications only) or by using the snap (and unsnap) command (supported in all
+//! applications)."
+//!
+//! It falls out of the framing. A read-all packet carries one 2-byte PEC over the whole readback
+//! instead of the per-device data block Table 47 defines, so individual devices in a stack can neither
+//! be addressed nor PEC-checked.
+//!
+//! So in a daisy chain, reach for `SNAP`/`UNSNAP` around ordinary per-group reads. That gets you the
+//! same coherency guarantee, works with any stack size, and the per-group types do have the
+//! `daisychain_*` helpers:
+//!
+//! ```ignore
+//! spi.write(&commands::snap().frame().to_bytes())?;          // freeze all result registers
+//! let cells_a = read_chain::<CellVoltagesAReadResponse>(&mut spi, DEVICES)?;
+//! let cells_b = read_chain::<CellVoltagesBReadResponse>(&mut spi, DEVICES)?;
+//! // ... remaining groups, all coherent with one another ...
+//! spi.write(&commands::unsnap().frame().to_bytes())?;        // release the freeze
+//! ```
+//!
 //! ## Why the chain helpers take slices
 //!
 //! A chain frame's length is `4 + devices * (group_bytes + 2)`, which for a const-generic device count
