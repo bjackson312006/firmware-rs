@@ -653,6 +653,20 @@ pub struct StatusC {
     /// The 2-byte padding to make this 6-byte register group fit into u64
     #[bits(16, default = 0)]                                           _padding: u16,
 }
+impl StatusCReadRequest {
+    /// Builds a `StatusCReadRequest`, but with the ERR bit set.
+    ///
+    /// This deliberately forces a mismatch between the redundant internal SPI slaves so that
+    /// `SPIFLT` reads as `Fault`, which proves the bit is not stuck low. The response can be interpereted
+    /// as a normal `StatusCReadResponse`.
+    ///
+    /// Note: Because of the above, SPIFLT will be set after calling this. You should probably clear it with CLRFLAG
+    /// (`CL_SPIFLT`) before doing anything else, or every later read will report an SPI fault.
+    pub const fn new_err() -> Self {
+        Self { command: commands::status::rdstatcerr().frame() }
+    }
+}
+
 
 /// Status Register Group D (STATD). Contains six 1-byte registers (so 6 bytes total).
 /// 
