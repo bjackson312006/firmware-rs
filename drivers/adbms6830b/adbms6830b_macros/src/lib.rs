@@ -378,6 +378,9 @@ fn register_group_impl(
             }
 
             impl #write_frame_ident {
+                /// The number of bytes this frame serializes into.
+                pub const BYTES: usize = #write_len;
+
                 #[doc = #new_doc]
                 pub const fn new(data: #name) -> Self {
                     let command = #write_command_expr;
@@ -424,6 +427,9 @@ fn register_group_impl(
             }
 
             impl #read_request_ident {
+                /// The number of bytes this request serializes into.
+                pub const BYTES: usize = 4;
+
                 #[doc = #read_request_new_doc]
                 pub const fn new() -> Self {
                     Self { command: #read_command_expr }
@@ -458,6 +464,9 @@ fn register_group_impl(
             }
 
             impl #read_response_ident {
+                /// The number of bytes that must be clocked in to build this response.
+                pub const BYTES: usize = #response_len;
+
                 #[doc = #read_response_from_bytes_doc]
                 pub const fn from_bytes(bytes: [u8; #response_len]) -> ::core::option::Option<Self> {
                     let data = [ #( bytes[#data_indices] ),* ];
@@ -800,6 +809,9 @@ fn register_group_aggregate_impl(
             }
 
             impl #write_frame_ident {
+                /// The number of bytes this frame serializes into.
+                pub const BYTES: usize = #name::BYTES + 6;
+
                 #[doc = #new_doc]
                 pub const fn new(data: #name) -> Self {
                     let command = #write_command_expr;
@@ -855,6 +867,9 @@ fn register_group_aggregate_impl(
             }
 
             impl #read_request_ident {
+                /// The number of bytes this request serializes into.
+                pub const BYTES: usize = 4;
+
                 #[doc = #read_request_new_doc]
                 pub const fn new() -> Self {
                     Self { command: #read_command_expr }
@@ -889,6 +904,9 @@ fn register_group_aggregate_impl(
             }
 
             impl #read_response_ident {
+                /// The number of bytes that must be clocked in to build this response.
+                pub const BYTES: usize = #name::BYTES + 2;
+
                 #[doc = #read_response_from_bytes_doc]
                 pub const fn from_bytes(bytes: [u8; { #name::BYTES + 2 }]) -> ::core::option::Option<Self> {
                     let mut data = [0u8; #name::BYTES];

@@ -455,3 +455,4 @@ pub mod config_b;
 pub mod results;
 pub mod status;
 pub mod pwm;
+pub mod comm;
