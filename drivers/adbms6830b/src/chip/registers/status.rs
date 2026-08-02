@@ -425,6 +425,57 @@ pub mod types {
         }
         impl ConversionsSubcounter { pub const DEFAULT: Self = Self::new(); }
     }
+
+    /// Field types relavent to Status Register D. See Table 109 on pages 73-74 of the datasheet.
+    pub mod d {
+        use super::{bitenum, BitfieldEnumDefault, bitfield};
+
+        /// Cell `x` overvoltage flag (CxOV). One-bit field. This bit defaults to `1`.
+        /// 
+        /// x = 1 to 16: C-ADC 1 ms cell voltage measurement result compared to VOV comparison voltage.
+        #[repr(u8)]
+        #[bitenum]
+        #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        pub enum CellOvervoltageFlag {
+            /// Cell `x` flagged for overvoltage condition.
+            #[default]
+            #[fallback]
+            Overvoltage = 1,
+            /// Cell `x` not flagged for overvoltage condition.
+            Okay = 0,
+        }
+
+        /// Cell `x` undervoltage flag (CxUV). One-bit field. This bit defaults to `1`.
+        /// 
+        /// x = 1 to 16: C-ADC 1 ms cell voltage measurement result compared to VUV comparison voltage.
+        #[repr(u8)]
+        #[bitenum]
+        #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        pub enum CellUndervoltageFlag {
+            /// Cell `x` flagged for undervoltage condition.
+            #[default]
+            #[fallback]
+            Undervoltage = 1,
+            /// Cell `x` not flagged for undervoltage condition.
+            Okay = 0,
+        }
+
+        /// Oscillator check counter (OC_CNTR[7:0]). 8-bit field. Default is 0.
+        /// 
+        /// Stores the results of the oscillator counter check. If no OSCCHK failure occurs, this stores the most recently
+        /// acquired oscillator count. If an OSCCHK failure occurs, this stores the first failing counter value. Passing
+        /// range is 52 to 71.
+        /// 
+        /// ^^ In other words, the way you inerperet this value should depend on the `OSCCHK` result from Status Register C (see the `OscillatorCheck` type).
+        /// If `OSCCHK == Okay` (meaning no OSCCHK failure occured), the `count()` value on this type indicates the most recently acquired oscillator count.
+        /// If `OSCCHK == OutOfRangeOscillatorDetected` (meaning a OSCCHK failure occured), the `count()` value on this type indicates the first failing counter value.
+        #[bitfield(u8)]
+        pub struct OscillatorCheckCounter {
+            /// The 8-bit oscillator check counter.
+            #[bits(8, default = 0, access = RO)]        pub count: u8,
+        }
+        impl OscillatorCheckCounter { pub const DEFAULT: Self = Self::new(); }
+    }
 }
 
 /// Status Register Group A (STATA). 
@@ -561,6 +612,94 @@ pub struct StatusC {
     #[bits(1, default = types::c::SupplyRailDelta::DEFAULT)]         pub vde: types::c::SupplyRailDelta,
     /// Supply rail latent delta. Corresponds to `VDEL`.
     #[bits(1, default = types::c::SupplyRailDeltaLatent::DEFAULT)]   pub vdel: types::c::SupplyRailDeltaLatent,
+    
+    /// The 2-byte padding to make this 6-byte register group fit into u64
+    #[bits(16, default = 0)]                                           _padding: u16,
+}
+
+/// Status Register Group D (STATD). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// See Table 92 on page 68 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = Some(commands::status::rdstatd().frame()),
+)]
+#[bitfield(u64)]
+pub struct StatusD {
+    /// Cell 1 undervoltage flag. Corresponds to `C1UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c1uv: types::d::CellUndervoltageFlag,
+    /// Cell 1 overvoltage flag. Corresponds to `C1OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c1ov: types::d::CellOvervoltageFlag,
+    /// Cell 2 undervoltage flag. Corresponds to `C2UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c2uv: types::d::CellUndervoltageFlag,
+    /// Cell 2 overvoltage flag. Corresponds to `C2OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c2ov: types::d::CellOvervoltageFlag,
+    /// Cell 3 undervoltage flag. Corresponds to `C3UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c3uv: types::d::CellUndervoltageFlag,
+    /// Cell 3 overvoltage flag. Corresponds to `C3OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c3ov: types::d::CellOvervoltageFlag,
+    /// Cell 4 undervoltage flag. Corresponds to `C4UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c4uv: types::d::CellUndervoltageFlag,
+    /// Cell 4 overvoltage flag. Corresponds to `C4OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c4ov: types::d::CellOvervoltageFlag,
+
+    /// Cell 5 undervoltage flag. Corresponds to `C5UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c5uv: types::d::CellUndervoltageFlag,
+    /// Cell 5 overvoltage flag. Corresponds to `C5OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c5ov: types::d::CellOvervoltageFlag,
+    /// Cell 6 undervoltage flag. Corresponds to `C6UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c6uv: types::d::CellUndervoltageFlag,
+    /// Cell 6 overvoltage flag. Corresponds to `C6OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c6ov: types::d::CellOvervoltageFlag,
+    /// Cell 7 undervoltage flag. Corresponds to `C7UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c7uv: types::d::CellUndervoltageFlag,
+    /// Cell 7 overvoltage flag. Corresponds to `C7OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c7ov: types::d::CellOvervoltageFlag,
+    /// Cell 8 undervoltage flag. Corresponds to `C8UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c8uv: types::d::CellUndervoltageFlag,
+    /// Cell 8 overvoltage flag. Corresponds to `C8OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c8ov: types::d::CellOvervoltageFlag,
+
+    /// Cell 9 undervoltage flag. Corresponds to `C9UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c9uv: types::d::CellUndervoltageFlag,
+    /// Cell 9 overvoltage flag. Corresponds to `C9OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c9ov: types::d::CellOvervoltageFlag,
+    /// Cell 10 undervoltage flag. Corresponds to `C10UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c10uv: types::d::CellUndervoltageFlag,
+    /// Cell 10 overvoltage flag. Corresponds to `C10OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c10ov: types::d::CellOvervoltageFlag,
+    /// Cell 11 undervoltage flag. Corresponds to `C11UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c11uv: types::d::CellUndervoltageFlag,
+    /// Cell 11 overvoltage flag. Corresponds to `C11OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c11ov: types::d::CellOvervoltageFlag,
+    /// Cell 12 undervoltage flag. Corresponds to `C12UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c12uv: types::d::CellUndervoltageFlag,
+    /// Cell 12 overvoltage flag. Corresponds to `C12OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c12ov: types::d::CellOvervoltageFlag,
+
+    /// Cell 13 undervoltage flag. Corresponds to `C13UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c13uv: types::d::CellUndervoltageFlag,
+    /// Cell 13 overvoltage flag. Corresponds to `C13OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c13ov: types::d::CellOvervoltageFlag,
+    /// Cell 14 undervoltage flag. Corresponds to `C14UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c14uv: types::d::CellUndervoltageFlag,
+    /// Cell 14 overvoltage flag. Corresponds to `C14OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c14ov: types::d::CellOvervoltageFlag,
+    /// Cell 15 undervoltage flag. Corresponds to `C15UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c15uv: types::d::CellUndervoltageFlag,
+    /// Cell 15 overvoltage flag. Corresponds to `C15OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c15ov: types::d::CellOvervoltageFlag,
+    /// Cell 16 undervoltage flag. Corresponds to `C16UV`.
+    #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c16uv: types::d::CellUndervoltageFlag,
+    /// Cell 16 overvoltage flag. Corresponds to `C16OV`.
+    #[bits(1, default = types::d::CellOvervoltageFlag::DEFAULT)]  pub c16ov: types::d::CellOvervoltageFlag,
+
+    /// Byte 4 is just a reserved byte of all 1s
+    #[bits(8, default = 0xFF)]                                     _reserved: u8,
+
+    /// Oscillator check coutner. Corresponds to `OC_CNTR[7:0]`.
+    #[bits(8, default = types::d::OscillatorCheckCounter::DEFAULT)]  pub oc_cntr: types::d::OscillatorCheckCounter,
     
     /// The 2-byte padding to make this 6-byte register group fit into u64
     #[bits(16, default = 0)]                                           _padding: u16,
