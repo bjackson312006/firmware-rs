@@ -95,8 +95,21 @@ pub fn bitfield_enum_default(item: TokenStream) -> TokenStream {
 ///   generated automatically.
 ///
 /// The `RegisterKind` is derived from which commands are present: `ReadWrite` (both), `ReadOnly`
-/// (read only), or `WriteOnly` (write only — e.g. the CLRFLAG/CLOVUV clear commands, which send a
+/// (read only), or `WriteOnly` (write only, e.g. the CLRFLAG/CLOVUV clear commands, which send a
 /// data payload but have no read-back). A group with neither is a compile error.
+///
+/// ### Daisy Chains
+/// The write frame and read response also get `daisychain_`-prefixed helpers for multi-device stacks:
+/// `daisychain_bytes` (a `const fn` giving the wire length for N devices), `daisychain_serialize`
+/// (write side), `daisychain_parse` (read side), and `daisychain_data_block` (one device's data plus
+/// its PEC, for hand-assembly).
+///
+/// Both directions index devices the same way (index 0 is device 1, nearest the host) even though
+/// the wire order differs between Table 46 and Table 47. `daisychain_serialize` reverses internally so
+/// callers don't have to care.
+///
+/// The `chip::registers` module docs walk through the full driver-layer workflow for both the
+/// single-device and daisy-chained cases.
 ///
 /// ### Arguments
 /// This macro requires some arguments:
@@ -304,6 +317,8 @@ fn register_group_impl(
     let group_len = Literal::usize_unsuffixed(n);
     let write_len = Literal::usize_unsuffixed(n + 6);
     let response_len = Literal::usize_unsuffixed(n + 2);
+    // A daisy-chain data block is the same shape in both directions: data bytes + 2 PEC bytes.
+    let data_block_len = Literal::usize_unsuffixed(n + 2);
     let pec0_index = Literal::usize_unsuffixed(n);
     let pec1_index = Literal::usize_unsuffixed(n + 1);
 
@@ -399,6 +414,57 @@ fn register_group_impl(
                     ]
                 }
 
+                /// Serializes just this device's data block.
+                ///
+                /// This is the per-device unit of a daisy-chain write. You likely won't need to use this directly most of the time.
+                /// Probably just use `daisychain_serialize`, which assembles the whole frame and automatically handles the device
+                /// ordering.
+                pub const fn daisychain_data_block(self) -> [u8; #data_block_len] {
+                    let data = self.data.to_bytes();
+                    [
+                        #( data[#data_indices], )*
+                        self.data_pec.pec0(), self.data_pec.pec1(),
+                    ]
+                }
+
+                /// The length of a daisy-chain write frame for `devices` devices in bytes.
+                pub const fn daisychain_bytes(devices: usize) -> usize {
+                    4 + devices * #data_block_len
+                }
+
+                /// Serializes a daisy-chain write frame into `out`.
+                /// 
+                /// `data` is indexed with device 1 coming first. So, `data[0]` is the device nearest to the
+                /// host. This is the same order that `xxxReadResponse::daisychain_parse()` returns responses in.
+                /// 
+                /// On the actual wire itself, this is flipped (see Table 46). However, this function handles that
+                /// reversal automatically.
+                ///
+                /// ### Returns
+                /// - `Some(len)`: the number of bytes written to the start of `out`.
+                /// - `None`: `out` was shorter than `daisychain_bytes(data.len())`, and nothing was written.
+                pub fn daisychain_serialize(data: &[#name], out: &mut [u8]) -> ::core::option::Option<usize> {
+                    let needed = Self::daisychain_bytes(data.len());
+                    if out.len() < needed {
+                        return ::core::option::Option::None;
+                    }
+
+                    let command = #write_command_expr;
+                    out[..4].copy_from_slice(&command.to_bytes());
+
+                    // Table 46 puts device N's block first and device 1's last, so walk `data` backwards.
+                    let mut offset = 4;
+                    let mut i = data.len();
+                    while i > 0 {
+                        i -= 1;
+                        let block = Self::new(data[i]).daisychain_data_block();
+                        out[offset..offset + #data_block_len].copy_from_slice(&block);
+                        offset += #data_block_len;
+                    }
+
+                    ::core::option::Option::Some(needed)
+                }
+
                 /// The command portion of this frame.
                 pub const fn command(&self) -> #command_frame { self.command }
 
@@ -477,6 +543,29 @@ fn register_group_impl(
                     ::core::option::Option::Some(Self {
                         data: #name::from_bytes(data),
                         pec,
+                    })
+                }
+
+                /// The wire length of a daisy-chain read response for `devices` devices: one data block
+                /// per device, with no command header (the header goes out with the read request).
+                pub const fn daisychain_bytes(devices: usize) -> usize {
+                    devices * #response_len
+                }
+
+                /// Parses a daisy-chain read response and returns one entry per device.
+                ///
+                /// Entries come out device 1 first, so item 0 is the device nearest the host on the line you're transmitting on. See Table 47 of the datasheet.
+                ///
+                /// Each item is `None` if that device's data PEC failed, so one bad device does not
+                /// invalidate the rest of the chain. Trailing bytes that don't fill a whole block are
+                /// ignored, so pass a slice sized with `daisychain_bytes`.
+                pub fn daisychain_parse(
+                    bytes: &[u8],
+                ) -> impl ::core::iter::Iterator<Item = ::core::option::Option<Self>> + '_ {
+                    bytes.chunks_exact(#response_len).map(|chunk| {
+                        let mut block = [0u8; #response_len];
+                        block.copy_from_slice(chunk);
+                        Self::from_bytes(block)
                     })
                 }
 
@@ -819,6 +908,64 @@ fn register_group_aggregate_impl(
                     Self { command, data, data_pec }
                 }
 
+                /// Serializes just this device's data block.
+                ///
+                /// This is the per-device unit of a daisy-chain write. You likely won't need to use this directly most of the time.
+                /// Probably just use `daisychain_serialize`, which assembles the whole frame and automatically handles the device
+                /// ordering.
+                pub const fn daisychain_data_block(self) -> [u8; { #name::BYTES + 2 }] {
+                    let data = self.data.to_bytes();
+                    let mut out = [0u8; { #name::BYTES + 2 }];
+                    let mut i = 0usize;
+                    while i < #name::BYTES {
+                        out[i] = data[i];
+                        i += 1;
+                    }
+                    out[#name::BYTES] = self.data_pec.pec0();
+                    out[#name::BYTES + 1] = self.data_pec.pec1();
+                    out
+                }
+
+                /// The wire length of a daisy-chain write frame for `devices` devices: one 4-byte
+                /// command header plus one data block per device.
+                pub const fn daisychain_bytes(devices: usize) -> usize {
+                    4 + devices * (#name::BYTES + 2)
+                }
+
+                /// Serializes a daisy-chain write frame into `out`.
+                /// 
+                /// `data` is indexed with device 1 coming first. So, `data[0]` is the device nearest to the
+                /// host. This is the same order that `xxxReadResponse::daisychain_parse()` returns responses in.
+                /// 
+                /// On the actual wire itself, this is flipped (see Table 46). However, this function handles that
+                /// reversal automatically.
+                ///
+                /// ### Returns
+                /// - `Some(len)`: the number of bytes written to the start of `out`.
+                /// - `None`: `out` was shorter than `daisychain_bytes(data.len())`, and nothing was written.
+                pub fn daisychain_serialize(data: &[#name], out: &mut [u8]) -> ::core::option::Option<usize> {
+                    let needed = Self::daisychain_bytes(data.len());
+                    if out.len() < needed {
+                        return ::core::option::Option::None;
+                    }
+
+                    let command = #write_command_expr;
+                    out[..4].copy_from_slice(&command.to_bytes());
+
+                    // Table 46 puts device N's block first and device 1's last, so walk `data` backwards.
+                    let block_len = #name::BYTES + 2;
+                    let mut offset = 4;
+                    let mut i = data.len();
+                    while i > 0 {
+                        i -= 1;
+                        let block = Self::new(data[i]).daisychain_data_block();
+                        out[offset..offset + block_len].copy_from_slice(&block);
+                        offset += block_len;
+                    }
+
+                    ::core::option::Option::Some(needed)
+                }
+
                 /// Serializes the frame into bytes, for sending.
                 pub const fn to_bytes(self) -> [u8; { #name::BYTES + 6 }] {
                     let command = self.command.to_bytes();
@@ -922,6 +1069,28 @@ fn register_group_aggregate_impl(
                     ::core::option::Option::Some(Self {
                         data: #name::from_bytes(data),
                         pec,
+                    })
+                }
+
+                /// The length of a daisy-chain read response for `devices` devices in bytes.
+                pub const fn daisychain_bytes(devices: usize) -> usize {
+                    devices * (#name::BYTES + 2)
+                }
+
+                /// Parses a daisy-chain read response and returns one entry per device.
+                ///
+                /// Entries come out device 1 first, so item 0 is the device nearest the host on the line you're transmitting on. See Table 47 of the datasheet.
+                ///
+                /// Each item is `None` if that device's data PEC failed, so one bad device does not
+                /// invalidate the rest of the chain. Trailing bytes that don't fill a whole block are
+                /// ignored, so pass a slice sized with `daisychain_bytes`.
+                pub fn daisychain_parse(
+                    bytes: &[u8],
+                ) -> impl ::core::iter::Iterator<Item = ::core::option::Option<Self>> + '_ {
+                    bytes.chunks_exact(#name::BYTES + 2).map(|chunk| {
+                        let mut block = [0u8; { #name::BYTES + 2 }];
+                        block.copy_from_slice(chunk);
+                        Self::from_bytes(block)
                     })
                 }
 

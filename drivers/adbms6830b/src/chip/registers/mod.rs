@@ -1,4 +1,99 @@
 //! Register structure declarations based on the ADBMS6830B datasheet.
+//!
+//! # Sending and receiving register groups
+//!
+//! The register groups in this module (and its submodules) have protocol frames provided for them:
+//! - A group that can be written gets a `<Name>WriteFrame` struct.
+//! - A group that can be read gets a `<Name>ReadRequest` struct and a `<Name>ReadResponse` struct.
+//! 
+//! The following docs explain how to use these types, both for a single device and for a daisy chain.
+//!
+//! ## Single device
+//!
+//! This is the simpler case.
+//!
+//! Writing is a single buffer with CSB low for its whole length:
+//!
+//! ```ignore
+//! let frame = ConfigAWriteFrame::new(config);
+//! spi.write(&frame.to_bytes())?;              // 4 command + 6 data + 2 data PEC
+//! ```
+//!
+//! Reading is a single CSB-low transaction made of two halves (the 4-byte request, then the
+//! response clocked back in). CSB must stay low across both; dropping it in between aborts the read:
+//!
+//! ```ignore
+//! let request = ConfigAReadRequest::new().to_bytes();
+//! let mut rx = [0u8; ConfigAReadResponse::BYTES];   // 6 data + 2 trailer
+//!
+//! spi.transaction(&mut [
+//!     Operation::Write(&request),
+//!     Operation::Read(&mut rx),
+//! ])?;
+//!
+//! let config = ConfigAReadResponse::from_bytes(rx)
+//!     .ok_or(Error::PecMismatch)?                   // `None` means the data PEC failed
+//!     .data();
+//! ```
+//!
+//! ## Daisy chain
+//!
+//! In a daisy-chained setup, one command header is followed by one data block per device (see Table 46 (write) and
+//! Table 47 (read)). The `daisychain_`-prefixed helpers handle that framing for you, so they should be used whenever using a daisy-chained setup.
+//!
+//! Device indexing is the same in both directions: index 0 is device 1, the device nearest the
+//! host. Technically, on the write the two directions are flipped (writes put device N's block first and device 1's
+//! last, while reads come back device 1 first) but `daisychain_serialize()` performs that reversal
+//! internally so callers don't have to care. Use one consistent device index throughout.
+//!
+//! Writing a chain fills a caller-provided buffer, since the length depends on a runtime device count:
+//!
+//! ```ignore
+//! const DEVICES: usize = 12;
+//!
+//! // configs[0] is the device nearest the host on the line you're transmitting on.
+//! let configs: [ConfigA; DEVICES] = build_per_device_configs();
+//!
+//! // `daisychain_bytes()` is a const fn, so it works as an array length.
+//! let mut tx = [0u8; ConfigAWriteFrame::daisychain_bytes(DEVICES)];
+//! let len = ConfigAWriteFrame::daisychain_serialize(&configs, &mut tx)
+//!     .ok_or(Error::BufferTooSmall)?;               // `None` only if `tx` is undersized
+//!
+//! spi.write(&tx[..len])?;
+//! ```
+//!
+//! Reading a chain uses the same 4-byte request as the single-device case and then clocks back one block per device:
+//!
+//! ```ignore
+//! let request = ConfigAReadRequest::new().to_bytes();
+//! let mut rx = [0u8; ConfigAReadResponse::daisychain_bytes(DEVICES)];
+//!
+//! spi.transaction(&mut [
+//!     Operation::Write(&request),
+//!     Operation::Read(&mut rx),
+//! ])?;
+//!
+//! for (index, response) in ConfigAReadResponse::daisychain_parse(&rx).enumerate() {
+//!     match response {
+//!         Some(response) => on_device_data(index, response.data(), response.command_counter()),
+//!         // Only this device's PEC failed, the rest of the chain is still usable.
+//!         None => on_device_pec_failure(index),
+//!     }
+//! }
+//! ```
+//!
+//! `daisychain_parse()` returns a per-device `Option` rather than failing the whole chain.
+//! It also ignores a trailing partial block, so ideally you should size the receive buffer with `daisychain_bytes()` rather than by hand.
+//!
+//! `daisychain_data_block()` builds a single device's data-plus-PEC block if you need to assemble a
+//! frame yourself. You should typically use `daisychain_serialize()` though.
+//!
+//! ## Why the chain helpers take slices
+//!
+//! A chain frame's length is `4 + devices * (group_bytes + 2)`, which for a const-generic device count
+//! would be a `generic_const_exprs` (still unstable, very sad!). So the device count is
+//! a runtime `usize`, the helpers write into a caller-provided buffer, and `daisychain_bytes()` is a
+//! `const fn` you can use as an array length when the count is a constant, as above.
 
 #![allow(dead_code)]
 #![allow(rustdoc::broken_intra_doc_links)]
