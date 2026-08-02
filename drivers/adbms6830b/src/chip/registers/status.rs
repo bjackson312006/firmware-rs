@@ -476,6 +476,43 @@ pub mod types {
         }
         impl OscillatorCheckCounter { pub const DEFAULT: Self = Self::new(); }
     }
+
+    /// Field types relavent to Status Register E. See Table 110 on page 74 of the datasheet.
+    /// 
+    /// Note: This module doesn't have types for `RSVD`, `RSVD0`, or `RSVD1` (from Table 110), since those are just
+    /// reserved bits. Maybe in the future it would be good to have types for them just for error checking or something?
+    /// But for now who cares! Those fields will just be treat as normal private `_reserved` fields inside the bitfield struct.
+    pub mod e {
+        use super::{bitenum, BitfieldEnumDefault, bitfield};
+
+        /// GPIOx pin state (GPIx). One-bit field. This bit defaults to `0`.
+        /// 
+        /// Indicates whether pin `x` is at logic 0/Low or logic 1/High
+        #[repr(u8)]
+        #[bitenum]
+        #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        pub enum GpioPinState {
+            /// Pin is at Logic 1 (HIGH).
+            High = 1,
+            /// Pin is at Logic 0 (LOW).
+            #[default]
+            #[fallback]
+            Low = 0,
+        }
+
+        /// Device revision code (REV[3:0]). 4-bit field.
+        /// 
+        /// Uhh it seems like the datasheet specifies no default for this field. I am guessing that is because this is just
+        /// a constant/hardcoded field in the hardware that never changes. Actually that probably is why. Nonetheless for software purposes I
+        /// am making this field default to 0. Probably see Table 110 on page 74 of the datasheet if care
+        #[bitfield(u8)]
+        pub struct RevisionCode {
+            /// The 4-bit device revision code.
+            #[bits(4, default = 0, access = RO)]        pub code: u8,
+            #[bits(4, default = 0)]                     _reserved: u8,
+        }
+        impl RevisionCode { pub const DEFAULT: Self = Self::new(); }
+    }
 }
 
 /// Status Register Group A (STATA). 
@@ -701,6 +738,65 @@ pub struct StatusD {
     /// Oscillator check coutner. Corresponds to `OC_CNTR[7:0]`.
     #[bits(8, default = types::d::OscillatorCheckCounter::DEFAULT)]  pub oc_cntr: types::d::OscillatorCheckCounter,
     
+    /// The 2-byte padding to make this 6-byte register group fit into u64
+    #[bits(16, default = 0)]                                           _padding: u16,
+}
+
+/// Status Register Group E (STATE). Contains six 1-byte registers (so 6 bytes total).
+/// 
+/// Even though this is 6 bytes, only like 2 of the bytes actually have stuff in them. The rest is reserved.
+/// 
+/// See Table 93 on page 68 of the datasheet.
+#[register_group(
+    bytes = 6,
+    write = None,
+    read = Some(commands::status::rdstate().frame()),
+)]
+#[bitfield(u64)]
+pub struct StatusE {
+    /// Reserved.
+    #[bits(8, default = 0xFF)] _ster0: u8,
+    /// Reserved.
+    #[bits(8, default = 0xFF)] _ster1: u8,
+    /// Reserved.
+    #[bits(8, default = 0xFF)] _ster2: u8,
+
+    /// Reserved.
+    /// This is bit 0 in STER3, which unlike the rest of STER3 (which is all 1s), looks like it could be either 0 or 1 based
+    /// on the datasheet. I am using `default = 0` here for software purposes but I guess it is kind of up in the air
+    /// 
+    /// This probably doesn't matter since this is a reserved bit anyway, but it might as well be distinguished from
+    /// the rest of STER3 in case it becomes important in the future
+    #[bits(1, default = 0)] _ster3_first_bit: u8,
+    /// Reserved.
+    #[bits(7, default = 0x7F)] _ster3_except_for_the_first_bit: u8,
+
+    /// GPIO 1 pin state. Corresponds to `GPI[1]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi1: types::e::GpioPinState,
+    /// GPIO 2 pin state. Corresponds to `GPI[2]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi2: types::e::GpioPinState,
+    /// GPIO 3 pin state. Corresponds to `GPI[3]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi3: types::e::GpioPinState,
+    /// GPIO 4 pin state. Corresponds to `GPI[4]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi4: types::e::GpioPinState,
+    /// GPIO 5 pin state. Corresponds to `GPI[5]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi5: types::e::GpioPinState,
+    /// GPIO 6 pin state. Corresponds to `GPI[6]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi6: types::e::GpioPinState,
+    /// GPIO 7 pin state. Corresponds to `GPI[7]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi7: types::e::GpioPinState,
+    /// GPIO 8 pin state. Corresponds to `GPI[8]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi8: types::e::GpioPinState,
+
+    /// GPIO 9 pin state. Corresponds to `GPI[9]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi9: types::e::GpioPinState,
+    /// GPIO 10 pin state. Corresponds to `GPI[10]`.
+    #[bits(1, default = types::e::GpioPinState::DEFAULT)]  pub gpi10: types::e::GpioPinState,
+    /// Reserved.
+    #[bits(2, default = 0)] _b2_b3: u8,
+    /// Device revision code. Corresponds to `REV[3:0]`.
+    #[bits(4, default = types::e::RevisionCode::DEFAULT)]  pub rev: types::e::RevisionCode,
+
     /// The 2-byte padding to make this 6-byte register group fit into u64
     #[bits(16, default = 0)]                                           _padding: u16,
 }
