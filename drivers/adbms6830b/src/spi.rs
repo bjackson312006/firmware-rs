@@ -142,6 +142,41 @@ impl<SPI: SpiDevice, const NUM_CHIPS: usize> Adbms6830b<SPI, NUM_CHIPS> {
     /// a chip in the daisy chain. `devices[0]` is the device nearest to the host, so tou should
     /// orient your list as such. If you have no chain and are just writing to one chip, you can just
     /// pass in a slice with a length of one.
+    ///
+    /// ### Examples
+    /// Here's an example of how this function might be used:
+    /// ```ignore
+    /// // Build the same ConfigB for every chip.
+    /// let config_b = ConfigB::default()
+    ///     .with_vuv(UndervoltageThreshold::from_microvolts(3_000_000).unwrap())
+    ///     .with_vov(OvervoltageThreshold::from_microvolts(4_200_000).unwrap());
+    ///
+    ///
+    /// let configs = [config_b; NUM_CHIPS]; // (Index 0 is the chip closest to the host.)
+    ///
+    /// // Write all chips' ConfigB registers.
+    /// match adbms.write(&configs) {
+    ///     Ok(()) => info!("Wrote ConfigB to {} chips", configs.len()),
+    ///     Err(err) => { warn!("evil error: {}", err); return; }
+    /// }
+    /// ```
+    /// 
+    /// If the reachable chain is shorter than `NUM_CHIPS` (maybe after a COMM_BK split), you can pass
+    /// a shorter slice to only write to those chips:
+    /// ```ignore
+    /// // Create PwmB configs for the three chips reachable on this segment of the chain.
+    /// let configs: [PwmB; 3] = [ 
+    ///     PwmB::default().with_pwm13(PwmDutyCycleConfig::Pct26_4),
+    ///     PwmB::default().with_pwm15(PwmDutyCycleConfig::Pct39_6),
+    ///     PwmB::default().with_pwm14(PwmDutyCycleConfig::Pct72_6),
+    /// ];
+    ///
+    /// // Write these configs to the three chips on this segment.
+    /// match adbms.write(&configs) {
+    ///     Ok(()) => info!("Wrote PwmB to {} chips", configs.len()),
+    ///     Err(err) => { warn!("evil error: {}", err); return; }
+    /// }
+    /// ```
     pub fn write<G: WritableGroup>(&mut self, devices: &[G]) -> Result<(), Error<SPI::Error>> {
         let n = devices.len();
         if n > NUM_CHIPS {
@@ -174,7 +209,32 @@ impl<SPI: SpiDevice, const NUM_CHIPS: usize> Adbms6830b<SPI, NUM_CHIPS> {
     /// you want to read the first two closest chips to the host. `3` would mean you want to read
     /// the first three closest chips to the host. You get the idea
     /// 
-    /// 
+    /// ### Examples
+    /// Here's an example of how this function might be used:
+    /// ```ignore
+    /// // Read the three closest chips' CellVoltagesA registers.
+    /// let responses = match adbms.read::<CellVoltagesA>(3) {
+    ///     Ok(response) => response,
+    ///     Err(err) => { warn!("evil error: {}", err); return; }
+    /// };
+    ///
+    /// // Loop through the returned responses for each chip.
+    /// for (index, response) in responses.iter().enumerate() {
+    ///     // Check each chip for PEC errors.
+    ///     let cells_a: CellVoltagesA = match response {
+    ///         None => {
+    ///             warn!("PEC error when reading chip {}!!!", index);
+    ///             return;
+    ///         },
+    ///         Some(cells_a) => cells_a,
+    ///     };
+    ///
+    ///     // Log the data from each chip's CellVoltagesA register.
+    ///     info!("Chip {}: Cell 1 voltage: {} uV", index, cells_a.c1v().as_microvolts());
+    ///     info!("Chip {}: Cell 2 voltage: {} uV", index, cells_a.c2v().as_microvolts());
+    ///     info!("Chip {}: Cell 3 voltage: {} uV", index, cells_a.c3v().as_microvolts());
+    /// }
+    /// ```
     pub fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<impl Response<Group = G>, Error<SPI::Error>> {
         if count > NUM_CHIPS {
             return Err(Error::TooManyDevices);
@@ -191,9 +251,34 @@ impl<SPI: SpiDevice, const NUM_CHIPS: usize> Adbms6830b<SPI, NUM_CHIPS> {
     }
 
     /// Reads one register group from every device in the chain.
-    pub fn read_all<G: ReadableGroup>(
-        &mut self,
-    ) -> Result<impl Response<Group = G>, Error<SPI::Error>> {
+    /// 
+    /// ### Examples
+    /// Here's an example of how this function might be used:
+    /// ```ignore
+    /// // Read all chips' StatusB registers.
+    /// let responses = match adbms.read_all::<StatusB>() {
+    ///     Ok(response) => response,
+    ///     Err(err) => { warn!("evil error: {}", err); return; }
+    /// };
+    ///
+    /// // Loop through the returned responses for each chip.
+    /// for (index, response) in responses.iter().enumerate() {
+    ///     // Check each chip for PEC errors.
+    ///     let status_b: StatusB = match response {
+    ///         None => {
+    ///             warn!("PEC error when reading chip {}!!!", index);
+    ///             return;
+    ///         },
+    ///         Some(status_b) => status_b,
+    ///     };
+    ///     
+    ///     // Log the data from each chip's StatusB register.
+    ///     info!("Chip {}: Digital power supply voltage: {} uV", index, status_b.vd().as_microvolts());
+    ///     info!("Chip {}: Analog power supply voltage: {} uV", index, status_b.va().as_microvolts());
+    ///     info!("Chip {}: VREF2 across resistor: {} uV", index, status_b.vres().as_microvolts());
+    /// }
+    /// ```
+    pub fn read_all<G: ReadableGroup>(&mut self,) -> Result<impl Response<Group = G>, Error<SPI::Error>> {
         self.read::<G>(NUM_CHIPS)
     }
 }
