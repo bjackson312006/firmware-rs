@@ -52,6 +52,13 @@ pub enum Error<E> {
     Spi(E),
 }
 
+/// Errors when initializing the driverl
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum InitError {
+    /// More devices were asked for than the chain holds.
+    TooManyDevices,
+}
+
 /// Per-device results of a chain read.
 ///
 /// To access the results for each device, use the `.device()` function.
@@ -139,9 +146,9 @@ impl<SPI: SpiDevice> Chain<SPI> {
     /// Builds a chain of `num_chips` devices on `spi`.
     ///
     /// Returns `TooManyDevices` if `num_chips` exceeds `MAX_CHIPS`.
-    pub fn new(spi: SPI, num_chips: usize) -> Result<Self, Error<SPI::Error>> {
+    pub fn new(spi: SPI, num_chips: usize) -> Result<Self, InitError> {
         if num_chips > MAX_CHIPS {
-            return Err(Error::TooManyDevices);
+            return Err(InitError::TooManyDevices);
         }
         Ok(Self { spi, num_chips })
     }
