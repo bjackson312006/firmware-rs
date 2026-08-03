@@ -1,147 +1,41 @@
-//! Register structure declarations based on the ADBMS6830B datasheet.
+//! Register group declarations based on the ADBMS6830B datasheet.
 //!
-//! # Sending and receiving register groups
-//!
-//! The register groups in this module (and its submodules) have protocol frames provided for them:
-//! - A group that can be written gets a `<Name>WriteFrame` struct.
-//! - A group that can be read gets a `<Name>ReadRequest` struct and a `<Name>ReadResponse` struct.
-//! 
-//! The following docs explain how to use these types, both for a single device and for a daisy chain.
-//!
-//! ## Single device
-//!
-//! This is the simpler case.
-//!
-//! Writing is a single buffer with CSB low for its whole length:
-//!
-//! ```ignore
-//! let frame = ConfigAWriteFrame::new(config);
-//! spi.write(&frame.to_bytes())?;              // 4 command + 6 data + 2 data PEC
-//! ```
-//!
-//! Reading is a single CSB-low transaction made of two halves (the 4-byte request, then the
-//! response clocked back in). CSB must stay low across both; dropping it in between aborts the read:
-//!
-//! ```ignore
-//! let request = ConfigAReadRequest::new().to_bytes();
-//! let mut rx = [0u8; ConfigAReadResponse::BYTES];   // 6 data + 2 trailer
-//!
-//! spi.transaction(&mut [
-//!     Operation::Write(&request),
-//!     Operation::Read(&mut rx),
-//! ])?;
-//!
-//! let config = ConfigAReadResponse::from_bytes(rx)
-//!     .ok_or(Error::PecMismatch)?                   // `None` means the data PEC failed
-//!     .data();
-//! ```
-//!
-//! ## Daisy chain
-//!
-//! In a daisy-chained setup, one command header is followed by one data block per device (see Table 46 (write) and
-//! Table 47 (read)). The `daisychain_`-prefixed helpers handle that framing for you, so they should be used whenever using a daisy-chained setup.
-//!
-//! Device indexing is the same in both directions: index 0 is device 1, the device nearest the
-//! host. Technically, on the write the two directions are flipped (writes put device N's block first and device 1's
-//! last, while reads come back device 1 first) but `daisychain_serialize()` performs that reversal
-//! internally so callers don't have to care. Use one consistent device index throughout.
-//!
-//! Writing a chain fills a caller-provided buffer, since the length depends on a runtime device count:
-//!
-//! ```ignore
-//! const DEVICES: usize = 12;
-//!
-//! // configs[0] is the device nearest the host on the line you're transmitting on.
-//! let configs: [ConfigA; DEVICES] = build_per_device_configs();
-//!
-//! // `daisychain_bytes()` is a const fn, so it works as an array length.
-//! let mut tx = [0u8; ConfigAWriteFrame::daisychain_bytes(DEVICES)];
-//! let len = ConfigAWriteFrame::daisychain_serialize(&configs, &mut tx)
-//!     .ok_or(Error::BufferTooSmall)?;               // `None` only if `tx` is undersized
-//!
-//! spi.write(&tx[..len])?;
-//! ```
-//!
-//! Reading a chain uses the same 4-byte request as the single-device case and then clocks back one block per device:
-//!
-//! ```ignore
-//! let request = ConfigAReadRequest::new().to_bytes();
-//! let mut rx = [0u8; ConfigAReadResponse::daisychain_bytes(DEVICES)];
-//!
-//! spi.transaction(&mut [
-//!     Operation::Write(&request),
-//!     Operation::Read(&mut rx),
-//! ])?;
-//!
-//! for (index, response) in ConfigAReadResponse::daisychain_parse(&rx).enumerate() {
-//!     match response {
-//!         Some(response) => on_device_data(index, response.data(), response.command_counter()),
-//!         // Only this device's PEC failed, the rest of the chain is still usable.
-//!         None => on_device_pec_failure(index),
-//!     }
-//! }
-//! ```
-//!
-//! `daisychain_parse()` returns a per-device `Option` rather than failing the whole chain.
-//! It also ignores a trailing partial block, so ideally you should size the receive buffer with `daisychain_bytes()` rather than by hand.
-//!
-//! `daisychain_data_block()` builds a single device's data-plus-PEC block if you need to assemble a
-//! frame yourself. You should typically use `daisychain_serialize()` though.
-//!
-//! ### Read-all aggregates are single-IC only
-//!
-//! The aggregate types (`CellVoltagesAll`, `SVoltagesAll`, and friends) have **no** `daisychain_*`
-//! helpers, because the read-all commands they wrap cannot be used on a chain at all. Per the READ ALL
-//! COMMANDS section of the datasheet, they are supported "for single IC applications" only, and the
-//! section above it calls this out again: coherent reads come "either using the read all commands (for
-//! single IC applications only) or by using the snap (and unsnap) command (supported in all
-//! applications)."
-//!
-//! It falls out of the framing. A read-all packet carries one 2-byte PEC over the whole readback
-//! instead of the per-device data block Table 47 defines, so individual devices in a stack can neither
-//! be addressed nor PEC-checked.
-//!
-//! So in a daisy chain, reach for `SNAP`/`UNSNAP` around ordinary per-group reads. That gets you the
-//! same coherency guarantee, works with any stack size, and the per-group types do have the
-//! `daisychain_*` helpers:
-//!
-//! ```ignore
-//! spi.write(&commands::snap().frame().to_bytes())?;          // freeze all result registers
-//! let cells_a = read_chain::<CellVoltagesAReadResponse>(&mut spi, DEVICES)?;
-//! let cells_b = read_chain::<CellVoltagesBReadResponse>(&mut spi, DEVICES)?;
-//! // ... remaining groups, all coherent with one another ...
-//! spi.write(&commands::unsnap().frame().to_bytes())?;        // release the freeze
-//! ```
-//!
-//! ## Why the chain helpers take slices
-//!
-//! A chain frame's length is `4 + devices * (group_bytes + 2)`, which for a const-generic device count
-//! would be a `generic_const_exprs` (still unstable, very sad!). So the device count is
-//! a runtime `usize`, the helpers write into a caller-provided buffer, and `daisychain_bytes()` is a
-//! `const fn` you can use as an array length when the count is a constant, as above.
+//! Each group here is a `#[bitfield]` struct laid out to match its table in the MEMORY MAP section
+//! of the datasheet. Groups that can be written implement the `WritableGroup` trait, and groups that can be
+//! read implement the `ReadableGroup` trait.
 
 #![allow(dead_code)]
 #![allow(rustdoc::broken_intra_doc_links)]
 
 use adbms6830b_macros::{register_group, register_group_aggregate};
 
-/// Defines whether a register group can be written to, or is read-only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RegisterKind {
-    /// The register group can only be read from.
-    ReadOnly,
-    /// The register group can only be written to (not a joke).
-    WriteOnly,
-    /// The register group can be read from and written to.
-    ReadWrite,
+use super::commands::CommandFrame;
+
+/// Size of every ADBMS6830B register group in bytes.
+///
+/// All the register groups in the datasheet are 6 bytes. Anything that
+pub const GROUP_BYTES: usize = 6;
+
+/// A register group the host can write.
+///
+/// Implemented by the `register_group` macro for any group given a `write` command.
+pub trait WritableGroup: Copy {
+    /// Command that writes this group.
+    const WRITE_COMMAND: CommandFrame;
+
+    /// Serializes the group into its protocol bytes.
+    fn to_bytes(self) -> [u8; GROUP_BYTES];
 }
 
-/// Common interface implemented by every register group.
-/// 
-/// This interface is implemented by the "internal" `register_group` proc macro.
-pub trait RegisterGroup {
-    /// Whether this register group is read-only or read/write.
-    const KIND: RegisterKind;
+/// A register group the host can read.
+///
+/// Implemented by the `register_group` macro for any group given a `read` command.
+pub trait ReadableGroup: Copy {
+    /// Command that reads this group.
+    const READ_COMMAND: CommandFrame;
+
+    /// Reconstructs the group from its protocol bytes.
+    fn from_bytes(bytes: [u8; GROUP_BYTES]) -> Self;
 }
 
 /// Module for internal shared helpers for the register types laid out in Table 107 on page 72 of the datasheet.
