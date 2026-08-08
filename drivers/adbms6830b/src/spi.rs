@@ -1,11 +1,12 @@
 //! Driver for talking to a single line of daisy-chained ADBMS6830B devices over SPI.
 //!
-//! See the `Chain` struct. That is the main guy here
+//! See the `Line` struct. That is the main guy here
 
 use core::marker::PhantomData;
 
-use embedded_hal::spi::{Operation, SpiDevice};
+use embedded_hal_async::spi::{Operation, SpiDevice};
 
+use crate::chip::commands;
 use crate::chip::pec::{DataPecRx, DataPecTx};
 use crate::chip::registers::{ReadableGroup, WritableGroup, GROUP_BYTES};
 
@@ -16,7 +17,7 @@ const BLOCK_BYTES: usize = GROUP_BYTES + 2;
 #[allow(dead_code)]
 const COMMAND_BYTES: usize = 4;
 
-/// Largest chip count any `Chain` can be configured for.
+/// Largest chip count any `Line` can be configured for.
 ///
 /// This is a compile-time upper bound rather than the actual chain length.
 /// You can customize this value by setting the `ADBMS6830B_MAX_CHIPS` environment variable (maybe in your .cargo/config.toml)
@@ -46,8 +47,11 @@ const fn parse_max_chips(text: &str) -> usize {
 /// Errors returned by the driver.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Error<E> {
-    /// More devices were asked for than the chain holds.
+    /// More devices were asked for than the `Line` holds.
     TooManyDevices,
+    /// The `Line` currently has no devices associated with it, so any reads/writes 
+    /// are not possible right now.
+    NoDevices,
     /// The underlying SPI transaction failed.
     Spi(E),
 }
@@ -55,11 +59,11 @@ pub enum Error<E> {
 /// Errors when initializing the driverl
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum InitError {
-    /// More devices were asked for than the chain holds.
+    /// More devices were asked for than the `Line` holds.
     TooManyDevices,
 }
 
-/// Per-device results of a chain read.
+/// Per-device results of a read on a `Line`.
 ///
 /// To access the results for each device, use the `.device()` function.
 ///
@@ -136,16 +140,14 @@ impl<G: ReadableGroup> Response<G> {
     }
 }
 
-/// One isoSPI line carrying a daisy chain of ADBMS6830B devices.
-pub struct Chain<SPI> {
+/// A single SPI/isoSPI line reaching some number of daisy-chained ADBMS6830B devices.
+pub struct Line<SPI> {
     spi: SPI,
     num_chips: usize,
 }
 
-impl<SPI: SpiDevice> Chain<SPI> {
-    /// Builds a chain of `num_chips` devices on `spi`.
-    ///
-    /// Returns `TooManyDevices` if `num_chips` exceeds `MAX_CHIPS`.
+impl<SPI: SpiDevice> Line<SPI> {
+    /// Builds a line reaching `num_chips` devices on `spi`.
     pub fn new(spi: SPI, num_chips: usize) -> Result<Self, InitError> {
         if num_chips > MAX_CHIPS {
             return Err(InitError::TooManyDevices);
@@ -153,24 +155,52 @@ impl<SPI: SpiDevice> Chain<SPI> {
         Ok(Self { spi, num_chips })
     }
 
-    /// Number of devices currently on this chain.
+    /// Number of devices currently reachable on this line.
     pub fn num_chips(&self) -> usize {
         self.num_chips
     }
 
-    /// u_TODO: Maybe future function:
-    /// once the serial ID register groups are implemented we could have a `pub fn detect_num_chips(&mut self) -> Result<usize, Error<SPI::Error>>` that tells you how
-    /// many chips are actually on the chain. This might be helpful for debugging or even some automatic state detection stuff? Or possibly just an occasional sanity check against the manually
-    /// tracked `num_chips()` stuff that the application has to manage. Manually doing state tracking is kind of annoying though so it would be nice to make it
-    /// automatic and error-proof somehow. See the u_Note about the possible `.split()` function so we wouldn't have to manually manage the num chips
+    /// Detects how many devices are actually reachable on this line.
+    ///
+    /// RDSID doesn't increment the command counter, so this will not mess with the `CCNT[5:0]`
+    /// values that the devices report back on other reads. This also doesn't update `num_chips()` for you.
+    /// If you want the line to actually use the detected count, pass it to `set_num_chips()`.
+    ///
+    /// ### Caveats
+    /// - This counts leading good blocks and stops at the first bad one. Because of this, a device that answers
+    /// with a corrupted PEC (noise on the line, etc.) will look like the end of the chain. It is a good idea to treat
+    /// a surprising result as "something is wrong" rather than as gospel, and maybe read it a couple
+    /// times before believing it.
+    /// - It can never see more than `MAX_CHIPS` devices, since that is all the buffer space there is.
+    /// If it returns `MAX_CHIPS` there could technically still be more chips further down the line.
+    pub async fn detect_num_chips(&mut self) -> Result<usize, Error<SPI::Error>> {
+        let mut blocks = [[0u8; BLOCK_BYTES]; MAX_CHIPS];
 
-    /// Changes how many devices this chain holds.
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&commands::misc::rdsid().frame().to_bytes()),
+                Operation::Read(blocks.as_flattened_mut()),
+            ])
+            .await
+            .map_err(Error::Spi)?;
+
+        // Count blocks until one fails its PEC. That first failure is the end of the chain.
+        let detected = blocks
+            .iter()
+            .take_while(|block| {
+                let pec = DataPecRx::from_bytes([block[GROUP_BYTES], block[GROUP_BYTES + 1]]);
+                pec.verify(&block[..GROUP_BYTES])
+            })
+            .count();
+
+        Ok(detected)
+    }
+
+    /// Changes how many devices this line reaches.
     ///
     /// You can use this after a COMM_BK split moves devices onto the other line. Returns `TooManyDevices`
-    /// if `num_chips` exceeds `MAX_CHIPS`.
-    /// 
-    /// u_Note: in the future it could be nice to have just like a `.split()` function that sets `COMM_BK` for you and returns
-    /// the two smaller-sized `Chain` instances. This maybe could be helpful? But dunno if that is too much abstraction for the driver layer. We will see
+    /// if `num_chips` exceeds `MAX_CHIPS`. Setting `0` is allowed and just means nothing is routed here
+    /// at the moment.
     pub fn set_num_chips(&mut self, num_chips: usize) -> Result<(), Error<SPI::Error>> {
         if num_chips > MAX_CHIPS {
             return Err(Error::TooManyDevices);
@@ -188,7 +218,7 @@ impl<SPI: SpiDevice> Chain<SPI> {
     ///
     /// ### Parameters
     /// - `devices`: The list of data you want to write, with each index coresponding
-    /// a chip in the daisy chain. `devices[0]` is the device nearest to the host, so tou should
+    /// a chip on this line. `devices[0]` is the device nearest to this end of the line, so tou should
     /// orient your list as such. If you have no chain and are just writing to one chip, you can just
     /// pass in a slice with a length of one.
     ///
@@ -201,17 +231,16 @@ impl<SPI: SpiDevice> Chain<SPI> {
     ///     .with_vov(OvervoltageThreshold::from_microvolts(4_200_000).unwrap());
     ///
     ///
-    /// let configs = [config_b; MAX_CHIPS]; // (Index 0 is the chip closest to the host.)
+    /// let configs = [config_b; MAX_CHIPS]; // (Index 0 is the chip closest to this end of the line.)
     ///
     /// // Write all chips' ConfigB registers.
-    /// match chain.write(&configs) {
+    /// match line.write(&configs).await {
     ///     Ok(()) => info!("Wrote ConfigB to {} chips", configs.len()),
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// }
     /// ```
     ///
-    /// If the reachable chain is shorter than `num_chips()`, for example after a COMM_BK split,
-    /// you can pass a shorter slice:
+    /// If you only want to write to some of the devices this line reaches, you can pass a shorter slice:
     /// ```rust,no_run
     /// // Three chips reachable on this segment of the chain.
     /// let configs: [PwmB; 3] = [
@@ -221,13 +250,18 @@ impl<SPI: SpiDevice> Chain<SPI> {
     /// ];
     ///
     /// // Write these configs to the three chips on this segment.
-    /// match chain.write(&configs) {
+    /// match line.write(&configs).await {
     ///     Ok(()) => info!("Wrote PwmB to {} chips", configs.len()),
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// }
     /// ```
-    pub fn write<G: WritableGroup>(&mut self, devices: &[G]) -> Result<(), Error<SPI::Error>> {
+    pub async fn write<G: WritableGroup>(&mut self, devices: &[G]) -> Result<(), Error<SPI::Error>> {
         let n = devices.len();
+
+        if self.num_chips == 0 {
+            return Err(Error::NoDevices);
+        }
+
         if n > self.num_chips {
             return Err(Error::TooManyDevices);
         }
@@ -247,22 +281,23 @@ impl<SPI: SpiDevice> Chain<SPI> {
                 Operation::Write(&G::WRITE_COMMAND.to_bytes()),
                 Operation::Write(&blocks.as_flattened()[..n * BLOCK_BYTES]),
             ])
+            .await
             .map_err(Error::Spi)
     }
 
-    /// Reads a register group from a chain of devices.
+    /// Reads a register group from the devices on this line.
     ///
     /// ### Parameters
     /// - `count`: The number of devices you want to read. `1` would mean that you
-    /// only want to read the closest chip to the host (microcontroller). `2` would mean that
-    /// you want to read the first two closest chips to the host. `3` would mean you want to read
-    /// the first three closest chips to the host. You get the idea
+    /// only want to read the closest chip to this end of the line. `2` would mean that
+    /// you want to read the first two closest chips. `3` would mean you want to read
+    /// the first three closest chips. You get the idea
     ///
     /// ### Examples
     /// Here's an example of how this function might be used:
     /// ```rust,no_run
     /// // Read the three closest chips' CellVoltagesA registers.
-    /// let responses: Response<CellVoltagesA> = match chain.read::<CellVoltagesA>(3) {
+    /// let responses: Response<CellVoltagesA> = match line.read::<CellVoltagesA>(3).await {
     ///     Ok(response) => response,
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// };
@@ -284,7 +319,11 @@ impl<SPI: SpiDevice> Chain<SPI> {
     ///     info!("Chip {}: Cell 3 voltage: {} uV", index, cells_a.c3v().as_microvolts());
     /// }
     /// ```
-    pub fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<Response<G>, Error<SPI::Error>> {
+    pub async fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<Response<G>, Error<SPI::Error>> {
+        if self.num_chips == 0 {
+            return Err(Error::NoDevices);
+        }
+        
         if count > self.num_chips {
             return Err(Error::TooManyDevices);
         }
@@ -295,18 +334,19 @@ impl<SPI: SpiDevice> Chain<SPI> {
                 Operation::Write(&G::READ_COMMAND.to_bytes()),
                 Operation::Read(&mut response.blocks.as_flattened_mut()[..count * BLOCK_BYTES]),
             ])
+            .await
             .map_err(Error::Spi)?;
 
         Ok(response)
     }
 
-    /// Reads one register group from every device in the chain.
+    /// Reads one register group from every device this line reaches.
     ///
     /// ### Examples
     /// Here's an example of how this function might be used:
     /// ```rust,no_run
     /// // Read all chips' StatusB registers.
-    /// let responses: Response<StatusB> = match chain.read_all::<StatusB>() {
+    /// let responses: Response<StatusB> = match line.read_all::<StatusB>().await {
     ///     Ok(response) => response,
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// };
@@ -328,7 +368,7 @@ impl<SPI: SpiDevice> Chain<SPI> {
     ///     info!("Chip {}: VREF2 across resistor: {} uV", index, status_b.vres().as_microvolts());
     /// }
     /// ```
-    pub fn read_all<G: ReadableGroup>(&mut self) -> Result<Response<G>, Error<SPI::Error>> {
-        self.read::<G>(self.num_chips)
+    pub async fn read_all<G: ReadableGroup>(&mut self) -> Result<Response<G>, Error<SPI::Error>> {
+        self.read::<G>(self.num_chips).await
     }
 }
