@@ -19,7 +19,8 @@ const COMMAND_BYTES: usize = 4;
 
 /// Largest chip count any `Line` can be configured for.
 ///
-/// This is a compile-time upper bound rather than the actual chain length.
+/// This is a compile-time upper bound on the `Line` length. The actual "current" length of a `Line` can be
+/// modified dynamically at runtime in case your application needs to.
 /// You can customize this value by setting the `ADBMS6830B_MAX_CHIPS` environment variable (maybe in your .cargo/config.toml)
 pub const MAX_CHIPS: usize = match option_env!("ADBMS6830B_MAX_CHIPS") {
     Some(text) => parse_max_chips(text),
@@ -160,19 +161,21 @@ impl<SPI: SpiDevice> Line<SPI> {
         self.num_chips
     }
 
-    /// Detects how many devices are actually reachable on this line.
+    /// Detects how many devices are reachable on this line.
     ///
-    /// RDSID doesn't increment the command counter, so this will not mess with the `CCNT[5:0]`
+    /// RDSID doesn't increment the command counter, so this won't mess with the `CCNT[5:0]`
     /// values that the devices report back on other reads. This also doesn't update `num_chips()` for you.
     /// If you want the line to actually use the detected count, pass it to `set_num_chips()`.
     ///
     /// ### Caveats
-    /// - This counts leading good blocks and stops at the first bad one. Because of this, a device that answers
-    /// with a corrupted PEC (noise on the line, etc.) will look like the end of the chain. It is a good idea to treat
-    /// a surprising result as "something is wrong" rather than as gospel, and maybe read it a couple
-    /// times before believing it.
-    /// - It can never see more than `MAX_CHIPS` devices, since that is all the buffer space there is.
-    /// If it returns `MAX_CHIPS` there could technically still be more chips further down the line.
+    /// - This counts all chips in the line until it encounters an invalid PEC. Because of this, a device that answers
+    /// with a corrupted PEC (noise on the line, etc.) will look like the end of the chain. It's a good idea to treat
+    /// a surprising result as "something is wrong" rather than as a hard fact, and you should maybe read it a couple
+    /// times before believing it. In other words, this function is meant to be an optional or occasionally useful sanity
+    /// check to your application's manually-tracked chip number, rather than something that is a primary source of truth.
+    /// - This function can never see more than `MAX_CHIPS` devices, since that is all the buffer space there is.
+    /// If it returns `MAX_CHIPS` there could technically still be more chips further down the line if your `MAX_CHIPS` isn't
+    /// correctly configured for your setup.
     pub async fn detect_num_chips(&mut self) -> Result<usize, Error<SPI::Error>> {
         let mut blocks = [[0u8; BLOCK_BYTES]; MAX_CHIPS];
 

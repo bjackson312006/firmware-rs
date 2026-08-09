@@ -470,3 +470,4 @@ pub mod results;
 pub mod status;
 pub mod pwm;
 pub mod comm;
+pub mod serial_id;
