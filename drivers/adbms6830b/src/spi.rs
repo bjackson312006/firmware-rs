@@ -9,6 +9,7 @@ use embedded_hal_async::spi::{Operation, SpiDevice};
 use crate::chip::commands;
 use crate::chip::pec::{DataPecRx, DataPecTx};
 use crate::chip::registers::{ReadableGroup, WritableGroup, GROUP_BYTES};
+use crate::docs;
 
 /// Size in bytes of one device's data block.
 const BLOCK_BYTES: usize = GROUP_BYTES + 2;
@@ -104,9 +105,11 @@ impl<G: ReadableGroup> Response<G> {
     ///
     /// ### Parameters
     /// - `index`: The index of the chip whose data you want to read. `0` corresponds to the
-    /// closest chip to the host.
+    /// closest chip to the host/the start of this line.
     ///
     /// This function will either return the data read from that chip, or `None` if its PEC failed (or the index is out of range).
+    ///
+    #[doc = docs::isospi_indexing_example!()]
     pub fn device(&self, index: usize) -> Option<G> {
         let block = self.block(index)?;
         let mut data = [0u8; GROUP_BYTES];
@@ -258,6 +261,8 @@ impl<SPI: SpiDevice> Line<SPI> {
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// }
     /// ```
+    ///
+    #[doc = docs::isospi_indexing_example!()]
     pub async fn write<G: WritableGroup>(&mut self, devices: &[G]) -> Result<(), Error<SPI::Error>> {
         let n = devices.len();
 
@@ -322,6 +327,8 @@ impl<SPI: SpiDevice> Line<SPI> {
     ///     info!("Chip {}: Cell 3 voltage: {} uV", index, cells_a.c3v().as_microvolts());
     /// }
     /// ```
+    /// 
+    #[doc = docs::isospi_indexing_example!()]
     pub async fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<Response<G>, Error<SPI::Error>> {
         if self.num_chips == 0 {
             return Err(Error::NoDevices);
@@ -371,6 +378,8 @@ impl<SPI: SpiDevice> Line<SPI> {
     ///     info!("Chip {}: VREF2 across resistor: {} uV", index, status_b.vres().as_microvolts());
     /// }
     /// ```
+    /// 
+    #[doc = docs::isospi_indexing_example!()]
     pub async fn read_all<G: ReadableGroup>(&mut self) -> Result<Response<G>, Error<SPI::Error>> {
         self.read::<G>(self.num_chips).await
     }
