@@ -35,7 +35,7 @@ pub mod types {
     ///
     /// ### Parameters
     /// - `$name`: the name of the enum to declare. It is always declared `pub` and derives
-    ///   `Copy, Clone, Debug, PartialEq, Eq`.
+    ///   `Copy, Clone, Debug, PartialEq, Eq` (plus `defmt::Format` when the `defmt` feature is on).
     /// - `$variant = $code`: the documented codes as laid out in the datasheet Tables 33-35. Codes not specified here
     ///   will become `Unknown`.
     /// - `Unknown(u8),`: written out explicitly so the variant can carry its own doc comment. The literal
@@ -64,6 +64,7 @@ pub mod types {
         ) => {
             $(#[$enum_meta])*
             #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
             pub enum $name {
                 $( $(#[$variant_meta])* $variant, )*
                 $(#[$unknown_meta])*
@@ -120,6 +121,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum IcomI2cWriteCode {
         /// Action: Start.
         /// 
@@ -147,6 +149,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum FcomI2cWriteCode {
         /// Action: Master acknowledge.
         /// 
@@ -170,6 +173,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum IcomSpiWriteCode {
         /// Action: CSBM low.
         /// 
@@ -197,6 +201,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum FcomSpiWriteCode {
         /// Action: CSBM low.
         /// 
@@ -296,7 +301,7 @@ pub mod types {
     write = Some(commands::comm::wrcomm().frame()),
     read = None,
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct WriteCommI2c {
     /// FCOM0[3:0]
     #[bits(4, default = types::FcomI2cWriteCode::DEFAULT)]  pub fcom0: types::FcomI2cWriteCode,
@@ -330,7 +335,7 @@ pub struct WriteCommI2c {
     write = Some(commands::comm::wrcomm().frame()),
     read = None,
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct WriteCommSpi {
     /// FCOM0[3:0]
     #[bits(4, default = types::FcomSpiWriteCode::DEFAULT)]  pub fcom0: types::FcomSpiWriteCode,
@@ -364,7 +369,7 @@ pub struct WriteCommSpi {
     write = None,
     read = Some(commands::comm::rdcomm().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct ReadCommI2c {
     /// FCOM0[3:0]
     #[bits(4, default = types::FcomI2cReadCode::DEFAULT)]  pub fcom0: types::FcomI2cReadCode,
@@ -400,7 +405,7 @@ pub struct ReadCommI2c {
     write = None,
     read = Some(commands::comm::rdcomm().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct ReadCommSpi {
     /// FCOM0[3:0]
     #[bits(4, default = types::FcomSpiReadCode::DEFAULT)]  pub fcom0: types::FcomSpiReadCode,
@@ -429,6 +434,7 @@ pub struct ReadCommSpi {
 /// A complete protocol frame for the `STCOMM` command, which starts the I2C/SPI transaction that
 /// `WRCOMM` staged in the COMM register.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StCommFrame {
     command: commands::CommandFrame,
 }

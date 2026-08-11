@@ -9,6 +9,7 @@
 /// Wraps the doubled 16-bit remainder (the 15-bit CRC in bits `[15:1]` with a
 /// `0` in the LSB). The two bytes that get sent on the wire are simply its high and low bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CommandPec{ raw: u16 }
 
 impl CommandPec {
@@ -31,6 +32,7 @@ impl CommandPec {
 ///
 /// Wraps the raw 10-bit CRC value.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct DataPec { raw: u16 }
 
 impl DataPec {
@@ -56,6 +58,7 @@ impl DataPec {
 
 /// A data PEC for TX. This is something we calculate before transmitting. See Table 42 on page 53 of the datasheet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataPecTx { inner: DataPec }
 impl DataPecTx {
     /// Creates a new `DataPecTx`.
@@ -83,6 +86,7 @@ impl DataPecTx {
 
 /// A data PEC for RX. This is something we construct when we recieve a frame. See Table 43 on page 53 of the datasheet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataPecRx { inner: DataPec }
 impl DataPecRx {
     /// Creates a `DataPecRx` from the two received PEC bytes (in wire order).

@@ -87,6 +87,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum ComparisonFault {
             /// A mismatch between C-ADC and S-ADC measurement on Channel `X` occurred.
             #[default]
@@ -102,6 +103,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum AnalogRailOvervoltage {
             /// Overvoltage event detected on the main 5 V analog power rail during an ADC operation.
             #[default]
@@ -118,6 +120,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum AnalogRailUndervoltage {
             /// Undervoltage event detected on the main 5 V analog power rail during an ADC operation.
             #[default]
@@ -133,6 +136,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum DigitalRailOvervoltage {
             /// Overvoltage event detected on the digital power rail during an ADC operation.
             #[default]
@@ -149,6 +153,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum DigitalRailUndervoltage {
             /// Undervoltage event detected on the digital power rail during an ADC operation.
             #[default]
@@ -164,6 +169,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum CTrimError {
             /// Trim error detected in C-NVM.
             #[default]
@@ -179,6 +185,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum CTrimMultipleError {
             /// Multiple trim errors detected in C-NVM.
             #[default]
@@ -194,6 +201,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum STrimError {
             /// Trim error detected in S-NVM.
             #[default]
@@ -209,6 +217,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum STrimMultipleError {
             /// Multiple trim errors detected in S-NVM.
             #[default]
@@ -228,6 +237,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SupplyRailDelta {
             /// Any of the 5 V supplies differ from VREG by more than 0.5 V.
             #[default]
@@ -248,6 +258,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SupplyRailDeltaLatent {
             /// All the 5 V supplies differed from VREG by more than 0.5 V.
             #[default]
@@ -263,6 +274,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum ComparisonActive {
             /// Indicates that the comparison between C-ADC and S-ADC results is active.
             ComparisonActive = 1,
@@ -276,6 +288,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SpiFault {
             /// A mismatch between redundant SPI slave outputs occurred.
             #[default]
@@ -291,6 +304,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SleepModeDetection {
             /// The device has previously power cycled or entered sleep mode.
             #[default]
@@ -306,6 +320,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum ThermalShutdownStatus {
             /// Thermal shutdown occurred.
             Occurred = 1,
@@ -321,6 +336,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum TestModeDetection {
             /// The device has previously activated a test mode.
             #[default]
@@ -336,6 +352,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum OscillatorCheck {
             /// An out of range oscillator count is detected during an ADC operation.
             #[default]
@@ -350,7 +367,7 @@ pub mod types {
         /// This is a free-running C-ADC conversion counter. Resets with every ADCV command. Rolls over after the maximum value.
         /// 
         /// This struct needs to be constructed manually from a `ConversionsCounterLower` and `ConversionsCounterUpper`, via the `ConversionsCounter::new()` function.
-        #[bitfield(u16, new = false)]
+        #[bitfield(u16, new = false, defmt = cfg(feature = "defmt"))]
         pub struct ConversionsCounter {
             /// Lower 6 bits (`CT[5:0]` of the Conversion Counter
             #[bits(6, default = ConversionsCounterLower::DEFAULT)] lower: ConversionsCounterLower,
@@ -378,7 +395,7 @@ pub mod types {
         /// This type needs to exist because `CT[10:0]` is a non-contiguous field inside Status Register Group C (see Table 91 on page 68 of the datasheet).
         /// Because of that, the lower 6 bits (`CT[4:0]`) and upper 5 bits (`CT[10:6]`) need to be represented separately for the initial
         /// SPI read and then combined into a real `ConversionsCounter` value.
-        #[bitfield(u8)]
+        #[bitfield(u8, defmt = cfg(feature = "defmt"))]
         pub struct ConversionsCounterUpper {
             /// (CT[10:6]).
             /// 
@@ -397,7 +414,7 @@ pub mod types {
         /// This type needs to exist because `CT[10:0]` is a non-contiguous field inside Status Register Group C (see Table 91 on page 68 of the datasheet).
         /// Because of that, the lower 6 bits (`CT[5:0]`) and upper 5 bits (`CT[10:6]`) need to be represented separately for the initial
         /// SPI read and then combined into a real `ConversionsCounter` value.
-        #[bitfield(u8)]
+        #[bitfield(u8, defmt = cfg(feature = "defmt"))]
         pub struct ConversionsCounterLower {
             /// (CT[5:0]).
             /// 
@@ -417,7 +434,7 @@ pub mod types {
         /// CT[10:0], CTS[1:0] can be treated as a 13-bit counter CCTS[12:0] that
         /// increments four times per sample. Can be read coherently to CADC results using the SNAP command to identify
         /// new or old samples. Coherency to SADC results is guaranteed only when CCTS is not 31, 32, 63, 64, …
-        #[bitfield(u16)]
+        #[bitfield(u16, defmt = cfg(feature = "defmt"))]
         pub struct ConversionsSubcounter {
             /// The 2-bit conversions subcounter value.
             #[bits(2, default = 0)]        pub value: u8,
@@ -436,6 +453,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum CellOvervoltageFlag {
             /// Cell `x` flagged for overvoltage condition.
             #[default]
@@ -451,6 +469,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum CellUndervoltageFlag {
             /// Cell `x` flagged for undervoltage condition.
             #[default]
@@ -469,7 +488,7 @@ pub mod types {
         /// ^^ In other words, the way you inerperet this value should depend on the `OSCCHK` result from Status Register C (see the `OscillatorCheck` type).
         /// If `OSCCHK == Okay` (meaning no OSCCHK failure occured), the `count()` value on this type indicates the most recently acquired oscillator count.
         /// If `OSCCHK == OutOfRangeOscillatorDetected` (meaning a OSCCHK failure occured), the `count()` value on this type indicates the first failing counter value.
-        #[bitfield(u8)]
+        #[bitfield(u8, defmt = cfg(feature = "defmt"))]
         pub struct OscillatorCheckCounter {
             /// The 8-bit oscillator check counter.
             #[bits(8, default = 0, access = RO)]        pub count: u8,
@@ -491,6 +510,7 @@ pub mod types {
         #[repr(u8)]
         #[bitenum]
         #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum GpioPinState {
             /// Pin is at Logic 1 (HIGH).
             High = 1,
@@ -505,7 +525,7 @@ pub mod types {
         /// Uhh it seems like the datasheet specifies no default for this field. I am guessing that is because this is just
         /// a constant/hardcoded field in the hardware that never changes. Actually that probably is why. Nonetheless for software purposes I
         /// am making this field default to 0. Probably see Table 110 on page 74 of the datasheet if care
-        #[bitfield(u8)]
+        #[bitfield(u8, defmt = cfg(feature = "defmt"))]
         pub struct RevisionCode {
             /// The 4-bit device revision code.
             #[bits(4, default = 0, access = RO)]        pub code: u8,
@@ -524,7 +544,7 @@ pub mod types {
     write = None,
     read = Some(commands::status::rdstata().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct StatusA {
     /// Second reference voltage. Corresponds to `VREF2[15:0]`.
     #[bits(16, default = types::a::Vref2::DEFAULT)]                    pub vref2: types::a::Vref2,
@@ -547,7 +567,7 @@ pub struct StatusA {
     write = None,
     read = Some(commands::status::rdstatb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct StatusB {
     /// Digital power supply voltage. Corresponds to `VD[15:0]`.
     #[bits(16, default = types::b::DigitalPowerSupplyVoltage::DEFAULT)] pub vd: types::b::DigitalPowerSupplyVoltage,
@@ -568,7 +588,7 @@ pub struct StatusB {
     write = None,
     read = Some(commands::status::rdstatc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct StatusC {
     /// Comparison fault for Channel 1. Corresponds to `CS1FLT`.
     #[bits(1, default = types::c::ComparisonFault::DEFAULT)] pub cs1flt: types::c::ComparisonFault,
@@ -660,6 +680,7 @@ pub struct StatusC {
 /// 
 /// Note: You have to clear SPIFLT after calling this (just like you would any other time).
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StatusCErr(pub StatusC);
 
 impl super::ReadableGroup for StatusCErr {
@@ -676,7 +697,7 @@ impl super::ReadableGroup for StatusCErr {
     write = None,
     read = Some(commands::status::rdstatd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct StatusD {
     /// Cell 1 undervoltage flag. Corresponds to `C1UV`.
     #[bits(1, default = types::d::CellUndervoltageFlag::DEFAULT)] pub c1uv: types::d::CellUndervoltageFlag,
@@ -766,7 +787,7 @@ pub struct StatusD {
     write = None,
     read = Some(commands::status::rdstate().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct StatusE {
     /// Reserved.
     #[bits(8, default = 0xFF)] _ster0: u8,

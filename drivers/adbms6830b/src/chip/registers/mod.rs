@@ -139,6 +139,15 @@ pub(in crate::chip) mod table107 {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
             pub struct $structname { inner: $crate::chip::registers::table107::FirstRowRegisters }
+
+            // Logs the measurement alongside the raw code, since the raw code isn't very useful to read.
+            #[cfg(feature = "defmt")]
+            impl defmt::Format for $structname {
+                fn format(&self, f: defmt::Formatter) {
+                    defmt::write!(f, "raw={=u16:b}, microvolts={=i32} uV", self.into_bits(), self.as_microvolts())
+                }
+            }
+
             impl $structname {
                 pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::FirstRowRegisters::new().with_inner($default_value) };
 
@@ -281,6 +290,15 @@ pub(in crate::chip) mod table107 {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
             pub struct $structname { inner: $crate::chip::registers::table107::VpvInner }
+
+            // Logs the measurement alongside the raw code, since the raw code isn't very useful to read.
+            #[cfg(feature = "defmt")]
+            impl defmt::Format for $structname {
+                fn format(&self, f: defmt::Formatter) {
+                    defmt::write!(f, "raw={=u16:b}, microvolts={=i32} uV", self.into_bits(), self.as_microvolts())
+                }
+            }
+
             impl $structname {
                 pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::VpvInner::new().with_inner($default_value) };
 
@@ -418,6 +436,15 @@ pub(in crate::chip) mod table107 {
             $(#[$outer])*
             #[derive(Debug, Copy, Clone, Eq, PartialEq)]
             pub struct $structname { inner: $crate::chip::registers::table107::ItmpInner }
+
+            // Logs the temperature alongside the raw code, since the raw code isn't very useful to read.
+            #[cfg(feature = "defmt")]
+            impl defmt::Format for $structname {
+                fn format(&self, f: defmt::Formatter) {
+                    defmt::write!(f, "raw={=u16:b}, microvolts={=i32} uC", self.into_bits(), self.as_microcelsius())
+                }
+            }
+
             impl $structname {
                 pub const DEFAULT: $structname = Self { inner: $crate::chip::registers::table107::ItmpInner::new().with_inner($default_value) };
 

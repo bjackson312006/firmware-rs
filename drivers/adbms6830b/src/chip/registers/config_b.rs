@@ -69,7 +69,7 @@ pub mod types {
     /// This type also provides the `as_microvolts()` function to convert an `UndervoltageThreshold` into microvolts (could be useful on reads).
     /// 
     /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V (VUV is signed two's complement).
-    #[bitfield(u16)]
+    #[bitfield(u16, defmt = cfg(feature = "defmt"))]
     pub struct UndervoltageThreshold {
         /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. Corresponds to `VUV[11:0]`.
         #[bits(12, default = 0x800)]    pub value: u16,
@@ -108,7 +108,7 @@ pub mod types {
     /// This type also provides the `as_microvolts()` function to convert an `OvervoltageThreshold` into microvolts (could be useful on reads).
     /// 
     /// Note: Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V (VOV is signed two's complement).
-    #[bitfield(u16)]
+    #[bitfield(u16, defmt = cfg(feature = "defmt"))]
     pub struct OvervoltageThreshold {
         /// Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V. Corresponds to `VOV[11:0]`.
         #[bits(12, default = 0x7FF)]     pub value: u16,
@@ -144,6 +144,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DischargeTimerMonitor {
         /// Disables the discharge timer monitor function (default).
         #[default]
@@ -157,6 +158,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DischargeTimerRange {
         /// Uses the short discharge timer range (0 to 63 minutes in 1 minute increments). (default)
         #[default]
@@ -175,7 +177,7 @@ pub mod types {
     /// To convert between increments and minutes, you need to match on your current `DischargeTimerRange` setting:
     /// - If `DischargeTimerRange::ShortRange`, minutes = increments() * 1 (since 1 increment = 1 minute)
     /// - If `DischargeTimerRange::LongRange`, minutes = increments() * 16 (since 1 increment = 16 minutes)
-    #[bitfield(u8)]
+    #[bitfield(u8, defmt = cfg(feature = "defmt"))]
     pub struct DischargeTimerStatus {
         /// Number of increments remaining on the timer. This value can range between 0 and 63. Defaults to 0.
         /// 
@@ -200,6 +202,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DischargeCellConfig {
         /// Continuously turns off shorting switch for Cell `x` (default).
         #[default]
@@ -218,7 +221,7 @@ pub mod types {
     write = Some(commands::config::wrcfgb().frame()),
     read = Some(commands::config::rdcfgb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct ConfigB {
     /// UV threshold/comparison voltage (VUV). Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. 12-bit field. Corresponds to `VUV[11:0]`.
     #[bits(12, default = types::UndervoltageThreshold::DEFAULT)]  pub vuv: types::UndervoltageThreshold,

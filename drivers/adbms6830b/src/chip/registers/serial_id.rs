@@ -20,7 +20,7 @@ use super::super::commands;
     write = None,
     read = Some(commands::misc::rdsid().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SerialId {
     /// This chip's 48-bit Serial ID value. Corresponds to `SID[47:0]`.
     #[bits(48, default = 0x00, access = RO)]  pub sid: u64,

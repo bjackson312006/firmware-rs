@@ -48,6 +48,7 @@ const fn parse_max_chips(text: &str) -> usize {
 
 /// Errors returned by the driver.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error<E> {
     /// More devices were asked for than the `Line` holds.
     TooManyDevices,
@@ -60,6 +61,7 @@ pub enum Error<E> {
 
 /// Errors when initializing the driverl
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InitError {
     /// More devices were asked for than the `Line` holds.
     TooManyDevices,
@@ -144,10 +146,35 @@ impl<G: ReadableGroup> Response<G> {
     }
 }
 
+/// Logs how many devices the response covers and whether they all passed their PEC check.
+///
+/// The per-device data isn't logged here since it would have to be decoded device by device anyway.
+/// If you need to log that data, use `device()`/`iter()`. This also lets you choose specifically what
+/// data you want to log.
+#[cfg(feature = "defmt")]
+impl<G: ReadableGroup> defmt::Format for Response<G> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "Response {{ len: {=usize}, all_ok: {=bool} }}",
+            self.used,
+            self.all_ok()
+        )
+    }
+}
+
 /// A single SPI/isoSPI line reaching some number of daisy-chained ADBMS6830B devices.
 pub struct Line<SPI> {
     spi: SPI,
     num_chips: usize,
+}
+
+/// Logs the line's current chip count. The underlying SPI device isn't logged since it isn't gauraunteed to implement `defmt::Format`.
+#[cfg(feature = "defmt")]
+impl<SPI> defmt::Format for Line<SPI> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "Line {{ num_chips: {=usize} }}", self.num_chips)
+    }
 }
 
 impl<SPI: SpiDevice> Line<SPI> {

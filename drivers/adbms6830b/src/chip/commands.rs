@@ -7,7 +7,7 @@ use bitfield_struct::bitfield;
 /// CC[10:0] - Command Code. 11-bit field.
 /// 
 /// See Table 50 on page 57 of the datasheet.
-#[bitfield(u16)]
+#[bitfield(u16, defmt = cfg(feature = "defmt"))]
 pub struct CommandCode {
     /// CC[10:0]
     #[bits(11)]
@@ -18,6 +18,7 @@ pub struct CommandCode {
 }
 
 /// ADBMS6830B Command. See Table 50 on page 57 of the datasheet.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Command {
     /// Whether or not the command counter increments for the command. Corresponds to the INC value from Table 50 in the datasheet.
     inc: bool,
@@ -27,6 +28,7 @@ pub struct Command {
 
 /// A Command Frame (the command code plus its command PEC). This is four bytes total.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CommandFrame {
     code: CommandCode,
     pec: super::pec::CommandPec,
@@ -331,6 +333,7 @@ pub mod adc {
     /// This is a 5-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Aux1InputSelection {
         /// AUX Input = ALL
         All = 0b00000,
@@ -377,6 +380,7 @@ pub mod adc {
     /// This is a 4-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Aux2InputSelection {
         /// AUX Input = ALL
         All = 0b00000,
@@ -407,6 +411,7 @@ pub mod adc {
     /// This is a 1-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Continuous {
         /// Single measurement, then standby.
         Single = 0,
@@ -419,6 +424,7 @@ pub mod adc {
     /// This is a 2-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum OpenWire {
         /// Open wire detection off on all channels.
         OffForAll = 0b00,
@@ -435,6 +441,7 @@ pub mod adc {
     /// This is a 1-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum OpenWireAux {
         /// Off
         Off = 0,
@@ -447,6 +454,7 @@ pub mod adc {
     /// This is a 1-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Pull {
         /// Pull-down current during AUX conversions (if OW = 1)
         PullDown = 0,
@@ -459,6 +467,7 @@ pub mod adc {
     /// This is a 1-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DischargePermitted {
         /// Discharge not permitted during S-ADC measurements. See the Discharge During Measurements section of the datasheet for details.
         DischargeNotPermitted = 0,
@@ -471,6 +480,7 @@ pub mod adc {
     /// This is a 1-bit field.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ResetFilter {
         /// Do not reset IIR filter.
         NoReset = 0,
@@ -481,6 +491,7 @@ pub mod adc {
     /// Redundancy (RD) for the ADCV command. See Table 19 on page 20 of the datasheet.
     #[repr(u8)]
     #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AdcvRedundancy {
         /// C-ADCs only (no redundant comparison).
         Disabled = 0,

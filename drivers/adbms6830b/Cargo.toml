@@ -3,10 +3,16 @@ name = "adbms6830b"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+# Feature that implements `defmt::Format` for every public type this driver exposes.
+defmt = ["dep:defmt"]
+
 [dependencies]
 embedded-hal-async.workspace = true
 bitfield-struct.workspace = true
 device-driver.workspace = true
 arbitrary-int.workspace = true
+defmt = { workspace = true, optional = true }
 
 adbms6830b-macros = { path = "adbms6830b_macros" }

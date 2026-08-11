@@ -139,7 +139,7 @@ pub mod types {
     write = None,
     read = Some(commands::cell_voltage::rdcva().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesA {
     /// Cell 1 Voltage Result. Corresponds to `C1V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c1v: types::CellVoltage,
@@ -160,7 +160,7 @@ pub struct CellVoltagesA {
     write = None,
     read = Some(commands::cell_voltage::rdcvb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesB {
     /// Cell 4 Voltage Result. Corresponds to `C4V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c4v: types::CellVoltage,
@@ -181,7 +181,7 @@ pub struct CellVoltagesB {
     write = None,
     read = Some(commands::cell_voltage::rdcvc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesC {
     /// Cell 7 Voltage Result. Corresponds to `C7V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c7v: types::CellVoltage,
@@ -202,7 +202,7 @@ pub struct CellVoltagesC {
     write = None,
     read = Some(commands::cell_voltage::rdcvd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesD {
     /// Cell 10 Voltage Result. Corresponds to `C10V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c10v: types::CellVoltage,
@@ -223,7 +223,7 @@ pub struct CellVoltagesD {
     write = None,
     read = Some(commands::cell_voltage::rdcve().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesE {
     /// Cell 13 Voltage Result. Corresponds to `C13V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c13v: types::CellVoltage,
@@ -244,7 +244,7 @@ pub struct CellVoltagesE {
     write = None,
     read = Some(commands::cell_voltage::rdcvf().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct CellVoltagesF {
     /// Cell 16 Voltage Result. Corresponds to `C16V[15:0]`.
     #[bits(16, default = types::CellVoltage::DEFAULT)]  pub c16v: types::CellVoltage,
@@ -258,6 +258,7 @@ pub struct CellVoltagesF {
     read = Some(commands::cell_voltage::rdcvall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CellVoltagesAll {
     /// Cells 1–3 (Cell Voltage Register Group A).
     pub a: CellVoltagesA,
@@ -286,7 +287,7 @@ pub struct CellVoltagesAll {
     write = None,
     read = Some(commands::avg_cell_voltage::rdaca().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesA {
     /// Cell 1 Average Voltage Result. Corresponds to `AC1V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac1v: types::AverageCellVoltage,
@@ -307,7 +308,7 @@ pub struct AverageCellVoltagesA {
     write = None,
     read = Some(commands::avg_cell_voltage::rdacb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesB {
     /// Cell 4 Average Voltage Result. Corresponds to `AC4V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac4v: types::AverageCellVoltage,
@@ -328,7 +329,7 @@ pub struct AverageCellVoltagesB {
     write = None,
     read = Some(commands::avg_cell_voltage::rdacc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesC {
     /// Cell 7 Average Voltage Result. Corresponds to `AC7V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac7v: types::AverageCellVoltage,
@@ -349,7 +350,7 @@ pub struct AverageCellVoltagesC {
     write = None,
     read = Some(commands::avg_cell_voltage::rdacd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesD {
     /// Cell 10 Average Voltage Result. Corresponds to `AC10V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac10v: types::AverageCellVoltage,
@@ -370,7 +371,7 @@ pub struct AverageCellVoltagesD {
     write = None,
     read = Some(commands::avg_cell_voltage::rdace().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesE {
     /// Cell 13 Average Voltage Result. Corresponds to `AC13V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac13v: types::AverageCellVoltage,
@@ -391,7 +392,7 @@ pub struct AverageCellVoltagesE {
     write = None,
     read = Some(commands::avg_cell_voltage::rdacf().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AverageCellVoltagesF {
     /// Cell 16 Average Voltage Result. Corresponds to `AC16V[15:0]`.
     #[bits(16, default = types::AverageCellVoltage::DEFAULT)]  pub ac16v: types::AverageCellVoltage,
@@ -405,6 +406,7 @@ pub struct AverageCellVoltagesF {
     read = Some(commands::avg_cell_voltage::rdacall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AverageCellVoltagesAll {
     /// Cells 1–3 (Average Cell Voltage Register Group A).
     pub a: AverageCellVoltagesA,
@@ -433,7 +435,7 @@ pub struct AverageCellVoltagesAll {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfca().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesA {
     /// Cell 1 Filtered Voltage Result. Corresponds to `FC1V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc1v: types::FilteredCellVoltage,
@@ -454,7 +456,7 @@ pub struct FilteredCellVoltagesA {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfcb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesB {
     /// Cell 4 Filtered Voltage Result. Corresponds to `FC4V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc4v: types::FilteredCellVoltage,
@@ -475,7 +477,7 @@ pub struct FilteredCellVoltagesB {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfcc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesC {
     /// Cell 7 Filtered Voltage Result. Corresponds to `FC7V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc7v: types::FilteredCellVoltage,
@@ -496,7 +498,7 @@ pub struct FilteredCellVoltagesC {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfcd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesD {
     /// Cell 10 Filtered Voltage Result. Corresponds to `FC10V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc10v: types::FilteredCellVoltage,
@@ -517,7 +519,7 @@ pub struct FilteredCellVoltagesD {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfce().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesE {
     /// Cell 13 Filtered Voltage Result. Corresponds to `FC13V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc13v: types::FilteredCellVoltage,
@@ -538,7 +540,7 @@ pub struct FilteredCellVoltagesE {
     write = None,
     read = Some(commands::filtered_cell_voltage::rdfcf().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct FilteredCellVoltagesF {
     /// Cell 16 Filtered Voltage Result. Corresponds to `FC16V[15:0]`.
     #[bits(16, default = types::FilteredCellVoltage::DEFAULT)]  pub fc16v: types::FilteredCellVoltage,
@@ -552,6 +554,7 @@ pub struct FilteredCellVoltagesF {
     read = Some(commands::filtered_cell_voltage::rdfcall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FilteredCellVoltagesAll {
     /// Cells 1–3 (Filtered Cell Voltage Register Group A).
     pub a: FilteredCellVoltagesA,
@@ -580,7 +583,7 @@ pub struct FilteredCellVoltagesAll {
     write = None,
     read = Some(commands::s_voltage::rdsva().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesA {
     /// Cell 1 S-Voltage Result. Corresponds to `S1V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s1v: types::SVoltage,
@@ -601,7 +604,7 @@ pub struct SVoltagesA {
     write = None,
     read = Some(commands::s_voltage::rdsvb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesB {
     /// Cell 4 S-Voltage Result. Corresponds to `S4V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s4v: types::SVoltage,
@@ -622,7 +625,7 @@ pub struct SVoltagesB {
     write = None,
     read = Some(commands::s_voltage::rdsvc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesC {
     /// Cell 7 S-Voltage Result. Corresponds to `S7V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s7v: types::SVoltage,
@@ -643,7 +646,7 @@ pub struct SVoltagesC {
     write = None,
     read = Some(commands::s_voltage::rdsvd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesD {
     /// Cell 10 S-Voltage Result. Corresponds to `S10V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s10v: types::SVoltage,
@@ -664,7 +667,7 @@ pub struct SVoltagesD {
     write = None,
     read = Some(commands::s_voltage::rdsve().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesE {
     /// Cell 13 S-Voltage Result. Corresponds to `S13V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s13v: types::SVoltage,
@@ -685,7 +688,7 @@ pub struct SVoltagesE {
     write = None,
     read = Some(commands::s_voltage::rdsvf().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct SVoltagesF {
     /// Cell 16 S-Voltage Result. Corresponds to `S16V[15:0]`.
     #[bits(16, default = types::SVoltage::DEFAULT)]  pub s16v: types::SVoltage,
@@ -699,6 +702,7 @@ pub struct SVoltagesF {
     read = Some(commands::s_voltage::rdsall().frame()),
 )]
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SVoltagesAll {
     /// Cells/Pins 1–3 (S-Voltage Register Group A).
     pub a: SVoltagesA,
@@ -727,7 +731,7 @@ pub struct SVoltagesAll {
     write = None,
     read = Some(commands::aux::rdauxa().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AuxillaryA {
     /// GPIO 1 Voltage Result. Corresponds to `G1V[15:0]`.
     #[bits(16, default = types::GpioVoltage::DEFAULT)]  pub g1v: types::GpioVoltage,
@@ -748,7 +752,7 @@ pub struct AuxillaryA {
     write = None,
     read = Some(commands::aux::rdauxb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AuxillaryB {
     /// GPIO 4 Voltage Result. Corresponds to `G4V[15:0]`.
     #[bits(16, default = types::GpioVoltage::DEFAULT)]  pub g4v: types::GpioVoltage,
@@ -769,7 +773,7 @@ pub struct AuxillaryB {
     write = None,
     read = Some(commands::aux::rdauxc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AuxillaryC {
     /// GPIO 7 Voltage Result. Corresponds to `G7V[15:0]`.
     #[bits(16, default = types::GpioVoltage::DEFAULT)]  pub g7v: types::GpioVoltage,
@@ -790,7 +794,7 @@ pub struct AuxillaryC {
     write = None,
     read = Some(commands::aux::rdauxd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct AuxillaryD {
     /// GPIO 10 Voltage Result. Corresponds to `G10V[15:0]`.
     #[bits(16, default = types::GpioVoltage::DEFAULT)]    pub g10v: types::GpioVoltage,
@@ -811,7 +815,7 @@ pub struct AuxillaryD {
     write = None,
     read = Some(commands::redundant_aux::rdraxa().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct RedundantAuxillaryA {
     /// GPIO 1 Voltage Result. Corresponds to `R_G1V[15:0]`.
     #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g1v: types::RedundantGpioVoltage,
@@ -832,7 +836,7 @@ pub struct RedundantAuxillaryA {
     write = None,
     read = Some(commands::redundant_aux::rdraxb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct RedundantAuxillaryB {
     /// GPIO 4 Voltage Result. Corresponds to `R_G4V[15:0]`.
     #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g4v: types::RedundantGpioVoltage,
@@ -853,7 +857,7 @@ pub struct RedundantAuxillaryB {
     write = None,
     read = Some(commands::redundant_aux::rdraxc().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct RedundantAuxillaryC {
     /// GPIO 7 Voltage Result. Corresponds to `R_G7V[15:0]`.
     #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]  pub r_g7v: types::RedundantGpioVoltage,
@@ -874,7 +878,7 @@ pub struct RedundantAuxillaryC {
     write = None,
     read = Some(commands::redundant_aux::rdraxd().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct RedundantAuxillaryD {
     /// GPIO 10 Voltage Result. Corresponds to `R_G10V[15:0]`.
     #[bits(16, default = types::RedundantGpioVoltage::DEFAULT)]    pub r_g10v: types::RedundantGpioVoltage,

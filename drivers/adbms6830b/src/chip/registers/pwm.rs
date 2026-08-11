@@ -18,6 +18,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum PwmDutyCycleConfig {
         /// Disabled (default).
         #[default]
@@ -66,7 +67,7 @@ pub mod types {
     write = Some(commands::pwm::wrpwma().frame()),
     read = Some(commands::pwm::rdpwma().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct PwmA {
     /// Cell 1 PWM Duty Cycle config. Corresponds to `PWM1[3:0]`.
     #[bits(4, default = types::PwmDutyCycleConfig::DEFAULT)]  pub pwm1: types::PwmDutyCycleConfig,
@@ -111,7 +112,7 @@ pub struct PwmA {
     write = Some(commands::pwm::wrpwmb().frame()),
     read = Some(commands::pwm::rdpwmb().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct PwmB {
     /// Cell 13 PWM Duty Cycle config. Corresponds to `PWM13[3:0]`.
     #[bits(4, default = types::PwmDutyCycleConfig::DEFAULT)]  pub pwm13: types::PwmDutyCycleConfig,

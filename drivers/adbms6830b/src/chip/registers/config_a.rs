@@ -20,6 +20,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ReferenceOn {
         /// Reference remains powered up until watchdog timeout.
         On = 1,
@@ -33,6 +34,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ComparisonThresholdVoltage {
         /// 5.1 mV
         Mv5_1 = 0b000,
@@ -58,6 +60,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SoakTimeOn {
         /// Enables soak time for all commands.
         On = 1,
@@ -71,6 +74,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SoakTimeRange {
         /// Long soak time range. 4.1ms to 524ms.
         Long = 1,
@@ -87,6 +91,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum OpenWireSoakTimeMultiplier {
         /// 1x base soak time. 32us for OWRNG=0, 4.096ms for OWRNG=1
         #[default]
@@ -112,6 +117,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum GpioPullDownConfig {
         /// GPIOx pin pull-down on.
         PullDownOn = 0,
@@ -127,6 +133,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum IirFilterConfig {
         /// IIR filter is disabled (default).
         #[default]
@@ -155,6 +162,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum CommunicationBreak {
         /// Communication Break is disabled (default).
         #[default]
@@ -168,6 +176,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum MuteStatus {
         /// Mute is deactivated.
         #[default]
@@ -181,6 +190,7 @@ pub mod types {
     #[repr(u8)]
     #[bitenum]
     #[derive(BitfieldEnumDefault, Copy, Clone, Debug, PartialEq, Eq, Default)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SnapshotStatus {
         /// Snapshot is deactivated.
         #[default]
@@ -199,7 +209,7 @@ pub mod types {
     write = Some(commands::config::wrcfga().frame()),
     read = Some(commands::config::rdcfga().frame()),
 )]
-#[bitfield(u64)]
+#[bitfield(u64, defmt = cfg(feature = "defmt"))]
 pub struct ConfigA {
     // CFGAR0! first byte of the register group.
     /// C-ADC vs. S-ADC comparison voltage theshold. Three-bit field.
