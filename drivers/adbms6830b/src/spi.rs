@@ -57,6 +57,10 @@ pub enum Error<E> {
     NoDevices,
     /// The underlying SPI transaction failed.
     Spi(E),
+    /// A user-provided timeout was elapsed before the function returned. This might
+    /// indicate unresponsive hardware, or a malformed command that never triggered the
+    /// expected reply. Or possibly the timeout was just too short
+    Timeout,
 }
 
 /// Errors when initializing the driverl
@@ -541,6 +545,20 @@ impl<SPI: SpiDevice> Line<SPI> {
     }
 }
 
+/// Module holding constants for the various ADC conversion times.
+pub mod conversion_times {
+    /// C-ADC single shot conversion time. Unit of ms.
+    pub const C_ADC_MS: u32 = 1;
+    /// S-ADC conversion time, and the time for a redundant ADCV (`RD = 1`). Unit of ms.
+    pub const S_ADC_MS: u32 = 8;
+    /// AUX ADC conversion time (ADAX). Unit of ms.
+    pub const AUX_MS: u32 = 1;
+    /// AUX2 ADC conversion time (ADAX2). Unit of ms.
+    pub const AUX2_MS: u32 = 8;
+    /// Added to any of the above when starting from the standby state (max). Unit of ms.
+    pub const REFUP_MS: u32 = 5;
+}
+
 /// # ADC Commands
 ///
 /// This impl block is for the oneshot ADC conversion commands. These carry no payload data
@@ -609,5 +627,311 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// For more information, see Table 52 on page 59 of the datasheet.
     pub async fn adax2(&mut self, channel: commands::adc::Aux2InputSelection) -> Result<(), Error<SPI::Error>> {
         self.command(commands::adc::adax2(channel)).await
+    }
+
+    /// Sends a poll command and reads back whether the line has finished converting.
+    ///
+    /// Returns `true` once every device on the line has completed the polled operation.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    async fn poll(&mut self, command: commands::Command) -> Result<bool, Error<SPI::Error>> {
+        /// Dummy bytes to clock out when polling `num_chips` devices.
+        ///
+        /// According to the datasheet, poll status is only valid after 2 x N clock pulses and
+        /// updates every clock pulse after that, so `ceil(2N/8)` bytes cover the invalid window
+        /// and the byte after it is entirely valid status. See the "POLLING METHODS" and "NETWORK LAYER" sections on page 54.
+        const fn poll_bytes(num_chips: usize) -> usize { (2 * num_chips + 7) / 8 + 1 }
+        const MAX_POLL_BYTES: usize = poll_bytes(MAX_CHIPS);
+
+        if self.num_chips == 0 {
+            return Err(Error::NoDevices);
+        }
+
+        let mut status = [0u8; MAX_POLL_BYTES];
+        let used = poll_bytes(self.num_chips);
+
+        // CS has to stay asserted across both operations. A single `transaction` guarantees that.
+        self.spi
+            .transaction(&mut [
+                Operation::Write(&commands::CommandFrame::from_command(&command).to_bytes()),
+                Operation::Read(&mut status[..used]),
+            ])
+            .await
+            .map_err(Error::Spi)?;
+
+        Ok(status[used - 1] == 0xFF)
+    }
+
+
+    /// Poll Any ADC Status command (PLADC).
+    /// 
+    /// This command polls the status of all ADCs together, which is only meaningful 
+    /// if only single shot measures have been triggered, because any ADC in continuous 
+    /// mode prevents successful polling of the end of conversion of
+    /// other ADCs.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    pub async fn pladc(&mut self) -> Result<bool, Error<SPI::Error>> {
+        self.poll(commands::adc::pladc()).await
+    }
+
+    /// Poll C-ADC command (PLCADC).
+    /// 
+    /// This command polls the status of the Cell Voltage ADCs.
+    /// 
+    /// This command is typically used after starting C-ADC conversions via `.adcv()`.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    pub async fn plcadc(&mut self) -> Result<bool, Error<SPI::Error>> {
+        self.poll(commands::adc::plcadc()).await
+    }
+
+    /// Poll S-ADC command (PLSADC).
+    /// 
+    /// This command polls the status of the S-ADCs.
+    /// 
+    /// This command is typically used after starting S-ADC conversions via `.adsv()`.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    pub async fn plsadc(&mut self) -> Result<bool, Error<SPI::Error>> {
+        self.poll(commands::adc::plsadc()).await
+    }
+
+    /// Poll AUX ADC command (PLAUX).
+    /// 
+    /// This command polls the status of the AUX ADCs.
+    /// 
+    /// This command is typically used after starting AUX ADC conversions via `.adax()`.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    pub async fn plaux(&mut self) -> Result<bool, Error<SPI::Error>> {
+        self.poll(commands::adc::plaux()).await
+    }
+
+    /// Poll AUX2 ADC command (PLAUX2).
+    /// 
+    /// This command polls the status of the AUX2 ADCs.
+    /// 
+    /// This command is typically used after starting AUX2 ADC conversions via `.adax2()`.
+    /// 
+    /// Note: This function does NOT manage a waker or anything to sleep until conversions are
+    /// completed. You need to continuously poll this function until it returns `true` before you
+    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
+    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
+    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// driver provides the raw constants for the expected conversion times according to the datasheet via the
+    /// [`conversion_times`] module.
+    pub async fn plaux2(&mut self) -> Result<bool, Error<SPI::Error>> {
+        self.poll(commands::adc::plaux2()).await
+    }
+
+}
+
+/// # Automatic Conversions
+///
+/// This impl block is for the `*_autoconvert()` functions. Each one starts a conversion, waits the
+/// time that conversion is expected to take, and then polls until the line reports that every
+/// device has finished. They only return once the conversion is actually complete, so when one of
+/// them returns `Ok(())` you can go straight to reading the result registers.
+///
+/// Note: These functions are made available via this driver's optional "embassy" feature flag.
+#[cfg(feature = "embassy")]
+impl<SPI: SpiDevice> Line<SPI> {
+    /// Shared private helper for the `*_autoconvert()` helpers.
+    ///
+    /// Sends `start`, sleeps for `conversion_ms`, then polls with `poll` until the line reports
+    /// that it has finished. `timeout_ms` bounds the whole operation, measured from just before
+    /// `start` goes out.
+    async fn autoconvert(&mut self, start: commands::Command, poll: commands::Command, conversion_ms: u64, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+        use embassy_time::{Duration, Instant, Timer};
+        
+        /// How long to wait between poll commands once the expected conversion time has already elapsed.
+        const POLL_INTERVAL_MS: u64 = 1;
+
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+
+        self.command(start).await?;
+
+        // Wait out the expected conversion time before polling at all. Polling immediately would
+        // always come back busy.
+        Timer::after_millis(conversion_ms).await;
+
+        loop {
+            if self.poll(poll).await? {
+                return Ok(());
+            }
+
+            if Instant::now() >= deadline {
+                return Err(Error::Timeout);
+            }
+
+            Timer::after_millis(POLL_INTERVAL_MS).await;
+        }
+    }
+
+    /// Start a Cell Voltage ADC Conversion (ADCV) and wait for it to finish.
+    ///
+    /// This just a call to `.adcv()`, followed by an automatic `.plcadc()` poll loop. It returns once every
+    /// device on the line reports that its C-ADCs are done, at which point the cell voltage result
+    /// registers are ready to read.
+    ///
+    /// ### Parameters
+    /// - `redundancy`: Whether to also trigger the S-ADCs and compare their results against
+    /// the C-ADC averages. A mismatch beyond the threshold set by `CTH[2:0]` in Config A sets
+    /// that cell's `CSxFLT` flag in Status Register Group C.
+    /// - `acquisition`: How the conversion runs, and whether PWM discharge continues through it.
+    /// - `reset_filter`: Whether to reset the IIR filter.
+    /// - `open_wire`: Which cell inputs to enable open wire excitation on.
+    /// - `timeout_ms`: How long to keep polling before giving up with `Error::Timeout`.
+    ///
+    /// ### Wait time
+    /// The expected conversion time is derived from `redundancy`:
+    /// - A standalone C-ADC conversion takes 1 ms.
+    /// - On the other hand, a redundant ADCV also triggers
+    /// the S-ADCs and compares the two results, which takes 8 ms.
+    /// - Starting from the standby state adds up to `REFUP_MS` on top of either of the two above.
+    ///
+    /// ### Errors
+    /// - `Error::Timeout` if the line never reported completion in `timeout_ms`.
+    pub async fn adcv_autoconvert(&mut self, redundancy: commands::adc::AdcvRedundancy, acquisition: commands::adc::AutoAcquisition, reset_filter: commands::adc::ResetFilter, open_wire: commands::adc::OpenWire, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+        let acquisition: commands::adc::Acquisition = acquisition.into();
+
+        let conversion_ms = match redundancy {
+            // Triggers the S-ADCs too and compares them against the C-ADC averages, so this takes
+            // a full S-ADC conversion rather than a single C-ADC one.
+            commands::adc::AdcvRedundancy::Enabled => conversion_times::S_ADC_MS as u64,
+            commands::adc::AdcvRedundancy::Disabled => conversion_times::C_ADC_MS as u64,
+        };
+
+        self.autoconvert(
+            commands::adc::adcv(redundancy, acquisition, reset_filter, open_wire),
+            commands::adc::plcadc(),
+            conversion_ms,
+            timeout_ms,
+        )
+        .await
+    }
+
+    /// Start an S-ADC Conversion (ADSV) and wait for it to finish.
+    ///
+    /// This is just a call to `.adsv()`, followed by an automatic `.plsadc()` poll loop. It returns once every
+    /// device on the line reports that its S-ADCs are done, at which point the S-voltage result
+    /// registers are ready to read.
+    ///
+    /// ### Parameters
+    /// - `acquisition`: How the conversion runs, and whether PWM discharge continues through it.
+    /// - `open_wire`: Which cell inputs to enable open wire excitation on.
+    /// - `timeout_ms`: How long to keep polling before giving up with `Error::Timeout`.
+    ///
+    /// ### Wait time
+    /// A normal single-shot S-ADC conversion takes 8 ms. 
+    /// However, starting from the standby state adds up to `REFUP_MS` on top of this.
+    ///
+    /// ### Errors
+    /// - `Error::Timeout` if the line never reported completion in `timeout_ms`.
+    pub async fn adsv_autoconvert(&mut self, acquisition: commands::adc::AutoAcquisition, open_wire: commands::adc::OpenWire, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+        let acquisition: commands::adc::Acquisition = acquisition.into();
+
+        self.autoconvert(
+            commands::adc::adsv(acquisition, open_wire),
+            commands::adc::plsadc(),
+            conversion_times::S_ADC_MS as u64,
+            timeout_ms,
+        )
+        .await
+    }
+
+    /// Start an AUX ADC Conversion (ADAX) and wait for it to finish.
+    ///
+    /// This is just a call to `.adax()`, followed by an automatic `.plaux()` poll loop. It returns once every
+    /// device on the line reports that its AUX ADC is done, at which point the auxiliary result
+    /// registers are ready to read.
+    ///
+    /// ### Parameters
+    /// - `open_wire`: Whether to run this conversion with open wire excitation on the AUX inputs.
+    /// - `pull`: Whether that excitation uses a pull-up or a pull-down current. This has no effect
+    /// unless `open_wire` is `OpenWireAux::On`.
+    /// - `channel`: Which AUX input to convert. `Aux1InputSelection::All` converts every one of them.
+    /// - `timeout_ms`: How long to keep polling before giving up with `Error::Timeout`.
+    ///
+    /// ### Wait time
+    /// An AUX conversion takes 1 ms per channel. Be aware that this figure doesn't account for
+    /// soak time. If `SOAKON` is set in Config A, each channel can be delayed due to your configuraiton.
+    ///
+    /// Note that the datasheet warns that an ADAX with a long soak time can outlast the watchdog, and that valid
+    /// commands have to keep arriving or the device interrupts the measurement and sleeps.
+    ///
+    /// ### Errors
+    /// - `Error::Timeout` if the line never reported completion in `timeout_ms`.
+    pub async fn adax_autoconvert(&mut self, open_wire: commands::adc::OpenWireAux, pull: commands::adc::Pull, channel: commands::adc::Aux1InputSelection, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+        self.autoconvert(
+            commands::adc::adax(open_wire, pull, channel),
+            commands::adc::plaux(),
+            conversion_times::AUX_MS as u64,
+            timeout_ms,
+        )
+        .await
+    }
+
+    /// Start an AUX2 ADC Conversion (ADAX2) and wait for it to finish.
+    ///
+    /// This is just a call to `.adax2()`, followed by an automatic `.plaux2()` poll loop. It returns once every
+    /// device on the line reports that its AUX2 ADC is done, at which point the redundant
+    /// auxiliary result registers are ready to read.
+    ///
+    /// ### Parameters
+    /// - `channel`: Which AUX input to convert. `Aux2InputSelection::All` converts every one of them.
+    /// - `timeout_ms`: How long to keep polling before giving up with `Error::Timeout`.
+    ///
+    /// ### Wait time
+    /// An AUX2 conversion takes 8 ms. The same soak time caveat as `.adax_autoconvert()` applies
+    /// here, so probably a good idea to read those docs and take a look at the datasheet.
+    ///
+    /// ### Errors
+    /// - `Error::Timeout` if the line never reported completion in `timeout_ms`.
+    pub async fn adax2_autoconvert(&mut self, channel: commands::adc::Aux2InputSelection, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+        self.autoconvert(
+            commands::adc::adax2(channel),
+            commands::adc::plaux2(),
+            conversion_times::AUX2_MS as u64,
+            timeout_ms,
+        )
+        .await
     }
 }

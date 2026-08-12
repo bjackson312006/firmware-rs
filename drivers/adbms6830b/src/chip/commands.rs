@@ -18,6 +18,7 @@ pub struct CommandCode {
 }
 
 /// ADBMS6830B Command. See Table 50 on page 57 of the datasheet.
+#[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Command {
     /// Whether or not the command counter increments for the command. Corresponds to the INC value from Table 50 in the datasheet.
@@ -439,6 +440,45 @@ pub mod adc {
         /// 
         /// This variant corresponds to `CONT = 1`, `DCP = 0`.
         Continuous,
+    }
+
+    /// How a conversion runs, and whether PWM discharge continues through it, for the `_autoconvert()` helpers.
+    /// 
+    /// This enum is just [`Acquisition`], but without the `Continuous` option. This is because continuous conversions
+    /// have no ADC completion to poll on, so the `_autoconvert()` helpers are not allowed to accept `Continuous` as
+    /// an option in their parameters.
+    /// 
+    /// Note: This enum is made available via this driver's optional "embassy" feature flag.
+    #[derive(Clone, Copy)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[cfg(feature = "embassy")]
+    pub enum AutoAcquisition {
+        /// Make a single measurement and then standby.
+        ///
+        /// PWM discharge is interrupted for the duration of any S-ADC measurement this
+        /// triggers. This is useful if you want to make sure the result isn't skewed by the discharge current's voltage drop
+        /// across the cell cabling.
+        /// 
+        /// This variant corresponds to `CONT = 0`, `DCP = 0`.
+        SingleShot,
+        /// Make a single measurement and then standby.
+        ///
+        /// PWM discharge continues through the measurement. This will keep balancing running,
+        /// but the discharge current's drop across the cell cabling may skew the result by an
+        /// amount that isn't predictable, so the intended voltage thresholds may not be
+        /// checked accurately.
+        /// 
+        /// This variant corresponds to  `CONT = 0`, `DCP = 1`.
+        SingleShotDischarging,
+    }
+    #[cfg(feature = "embassy")]
+    impl From<AutoAcquisition> for Acquisition {
+        fn from(item: AutoAcquisition) -> Self {
+            match item {
+                AutoAcquisition::SingleShot => Acquisition::SingleShot,
+                AutoAcquisition::SingleShotDischarging => Acquisition::SingleShotDischarging,
+            }
+        }
     }
 
     impl Acquisition {
