@@ -414,6 +414,41 @@ impl<SPI: SpiDevice> Line<SPI> {
     pub async fn read_all<G: ReadableGroup>(&mut self) -> Result<Response<G>, Error<SPI::Error>> {
         self.read::<G>(self.num_chips).await
     }
+
+    /// Wakes every device on this line out of the idle or sleep state.
+    ///
+    /// This generates the isoSPI pulse pairs the devices' wake-up
+    /// circuits detect. There is one pair per device, since each device must wake before it will propagate
+    /// the pulse to the next one.
+    ///
+    /// Sending more pairs than necessary is harmless, and this is safe to call on a line that's
+    /// already awake.
+    ///
+    /// See the "Waking Up the Serial Interface" section on page 51 of the datasheet.
+    pub async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
+        use embassy_time::Timer;
+
+        // Gap between pulses. t_WAKE is 500 us max (from sleep), so this has to be at least that
+        // long for a device to power up. It also has to stay under t_IDLE (4.3 ms min), or the
+        // devices that are already awake drop back to idle before the chain finishes waking.
+        const PULSE_GAP_US: u64 = 500;
+
+        // RDCFGA is the dummy command the datasheet suggests for waking, and it doesn't increment the command counter.
+        // We're doing this instead of manually asserting the CS pins because its possible that not all implementations of SpiDevice
+        // would assert/deassert CS on a Operation::DelayNs transaction
+        let dummy = commands::config::rdcfga().frame().to_bytes();
+
+        for _ in 0..self.num_chips {
+            self.spi
+                .transaction(&mut [Operation::Write(&dummy)])
+                .await
+                .map_err(Error::Spi)?;
+            Timer::after_micros(PULSE_GAP_US).await;
+        }
+
+        Ok(())
+    }
+
 }
 
 /// # Simple Commands
@@ -633,10 +668,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     async fn poll(&mut self, command: commands::Command) -> Result<bool, Error<SPI::Error>> {
@@ -677,10 +712,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     pub async fn pladc(&mut self) -> Result<bool, Error<SPI::Error>> {
@@ -695,10 +730,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     pub async fn plcadc(&mut self) -> Result<bool, Error<SPI::Error>> {
@@ -713,10 +748,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     pub async fn plsadc(&mut self) -> Result<bool, Error<SPI::Error>> {
@@ -731,10 +766,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     pub async fn plaux(&mut self) -> Result<bool, Error<SPI::Error>> {
@@ -749,10 +784,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// Note: This function does NOT manage a waker or anything to sleep until conversions are
     /// completed. You need to continuously poll this function until it returns `true` before you
-    /// can reliably read your conversions. If you are using embassy, this driver provides helpers
-    /// that start the conversion and do this waiting for you, via the `embassy` feature flag. These
+    /// can reliably read your conversions. This driver provides helpers
+    /// that start the conversion and do this waiting for you. These
     /// functions are `adcv_autoconvert()`, `adsv_autoconvert()`, `adax_autoconvert()`, and
-    /// `adax2_autoconvert()`. If you are not using embassy, this
+    /// `adax2_autoconvert()`. This
     /// driver provides the raw constants for the expected conversion times according to the datasheet via the
     /// [`conversion_times`] module.
     pub async fn plaux2(&mut self) -> Result<bool, Error<SPI::Error>> {
@@ -767,9 +802,6 @@ impl<SPI: SpiDevice> Line<SPI> {
 /// time that conversion is expected to take, and then polls until the line reports that every
 /// device has finished. They only return once the conversion is actually complete, so when one of
 /// them returns `Ok(())` you can go straight to reading the result registers.
-///
-/// Note: These functions are made available via this driver's optional "embassy" feature flag.
-#[cfg(feature = "embassy")]
 impl<SPI: SpiDevice> Line<SPI> {
     /// Shared private helper for the `*_autoconvert()` helpers.
     ///

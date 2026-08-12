@@ -7,8 +7,6 @@ edition = "2024"
 default = []
 # Feature that implements `defmt::Format` for every public type this driver exposes.
 defmt = ["dep:defmt"]
-# Feature that implements helpers for polling ADCs.
-embassy = ["dep:embassy-time"]
 
 [dependencies]
 embedded-hal-async.workspace = true
@@ -16,6 +14,6 @@ bitfield-struct.workspace = true
 device-driver.workspace = true
 arbitrary-int.workspace = true
 defmt = { workspace = true, optional = true }
-embassy-time = { workspace = true, optional = true }
+embassy-time.workspace = true
 
 adbms6830b-macros = { path = "adbms6830b_macros" }

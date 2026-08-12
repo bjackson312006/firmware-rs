@@ -447,11 +447,8 @@ pub mod adc {
     /// This enum is just [`Acquisition`], but without the `Continuous` option. This is because continuous conversions
     /// have no ADC completion to poll on, so the `_autoconvert()` helpers are not allowed to accept `Continuous` as
     /// an option in their parameters.
-    /// 
-    /// Note: This enum is made available via this driver's optional "embassy" feature flag.
     #[derive(Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    #[cfg(feature = "embassy")]
     pub enum AutoAcquisition {
         /// Make a single measurement and then standby.
         ///
@@ -471,7 +468,6 @@ pub mod adc {
         /// This variant corresponds to  `CONT = 0`, `DCP = 1`.
         SingleShotDischarging,
     }
-    #[cfg(feature = "embassy")]
     impl From<AutoAcquisition> for Acquisition {
         fn from(item: AutoAcquisition) -> Self {
             match item {
