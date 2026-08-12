@@ -411,3 +411,131 @@ impl<SPI: SpiDevice> Line<SPI> {
         self.read::<G>(self.num_chips).await
     }
 }
+
+/// # Commands
+/// 
+/// This impl block is for all the chip commands. These commands don't carry any payload data and don't read back any data either.
+impl<SPI: SpiDevice> Line<SPI> {
+    /// Private helper that sends a command frame. This is used by the public/exposed command functions.
+    async fn command(&mut self, command: commands::Command) -> Result<(), Error<SPI::Error>> {
+        self.spi.transaction(&mut [Operation::Write(&commands::CommandFrame::from_command(&command).to_bytes())])
+        .await
+        .map_err(Error::Spi)
+    }
+
+    /// Snapshot command (SNAP).
+    /// 
+    /// This will freeze all result and status registers in the `Line`
+    /// at a given moment. This is useful if you want to make sure data isn't
+    /// actively updating as you are reading it, especially if you want to make sure
+    /// all data in a single read corresponds to the exact same timestamp. To release the
+    /// freeze, use the `.unsnap()` function.
+    /// 
+    /// For more information, see the "SNAPSHOT COMMANDS" section on page 60 of the datasheet.
+    pub async fn snap(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::snapshot::snap()).await
+    }
+
+    /// Un-snapshot command (UNSNAP).
+    /// 
+    /// This will unfreeze the chips on the line if they were previously frozen by the `.snap()` command.
+    /// 
+    /// For more information, see the "SNAPSHOT COMMANDS" section on page 60 of the datasheet.
+    pub async fn unsnap(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::snapshot::unsnap()).await
+    }
+
+    /// Mute discharge command (MUTE).
+    /// 
+    /// This command will disable all discharge until you re-enable it via the `.unmute()` command.
+    /// Note that a mute is cleared automatically upon a watchdog timeout.
+    pub async fn mute(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::discharge::mute()).await
+    }
+
+    /// Unmute discharge command (UNMUTE).
+    /// 
+    /// This command command re-enables discharge if it was previously disabled via the `.mute()` command.
+    pub async fn unmute(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::discharge::unmute()).await
+    }
+
+    /// Clear cell registers command (CLRCELL).
+    /// 
+    /// This command will clear Cell Voltage Register A through
+    /// Cell Voltage Register F, alongside the averaged cell voltage registers.
+    /// All bytes in these registers are set to 0x8000 (their default) after this command.
+    pub async fn clear_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::clear::clrcell()).await
+    }
+
+    /// Clear filtered cell registers command (CLRFC).
+    /// 
+    /// This command will clear Filtered Cell Voltage Register A through
+    /// Filtered Cell Voltage Register F. 
+    /// All bytes in these registers are set to 0x8000 (their default) after this command.
+    pub async fn clear_filtered_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::clear::clrfc()).await
+    }
+
+    /// Clear aux cell registers command (CLRAUX).
+    /// 
+    /// This command will clear Auxiliary Register Group A through
+    /// Auxiliary Register Group D, the Redundant Auxiliary Register
+    /// Group A through Redundant Auxiliary Register Group D, and Status
+    /// Register Group A and Status Register Group B.
+    /// 
+    /// All bytes in these registers are set to 0x8000 by this command. Note that
+    /// the register value of 0x8000 resulting from this command is,
+    /// for some registers, different than their default value after power-up.
+    pub async fn clear_aux_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::clear::clraux()).await
+    }
+
+    /// Clear spin voltage registers command (CLRSPIN).
+    /// 
+    /// This command will clear S-Voltage Register A through S-Voltage Register F. All bytes in
+    /// these registers are set to 0x8000 by this command.
+    pub async fn clear_spin(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::clear::clrspin()).await
+    }
+
+    // u_TODO - need to add clrflag and clovuv, but probably as normal WriteableGroups since they carry data
+
+    /// Reset command counter command (RSTCC).
+    /// 
+    /// This command resets the chips' hardware-level command counters to 0.
+    pub async fn reset_command_counter(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::misc::rstcc()).await
+    }
+
+    /// Soft reset command (SRST).
+    /// 
+    /// The soft reset command (SRST) quickly puts all the devices in
+    /// the daisy chain into the sleep state. The soft reset command only
+    /// needs sufficient time to propagate the command up the stack to
+    /// the next device, after which the device enters sleep. This command
+    /// achieves two functions: a quick transition to the low power state,
+    /// and the ability to reset all of the switched power digital logic.
+    pub async fn soft_reset(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::misc::srst()).await
+    }
+
+    /// LCPM enable command (CMEN).
+    /// 
+    /// This command enables the Low Power Cell Monitoring feature.
+    /// For more information, see the "LCPM OPERATION" section on page 32 of the datasheet,
+    /// and probably other datasheet sections as well.
+    pub async fn lcpm_enable(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::lpcm::cmen()).await
+    }
+
+    /// LCPM disable command (CMDIS).
+    /// 
+    /// This command disables the Low Power Cell Monitoring feature.
+    /// For more information, see the "LCPM OPERATION" section on page 32 of the datasheet,
+    /// and probably other datasheet sections as well.
+    pub async fn lcpm_disable(&mut self) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::lpcm::cmdis()).await
+    }
+}
