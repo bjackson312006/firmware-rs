@@ -505,8 +505,6 @@ impl<SPI: SpiDevice> Line<SPI> {
         self.command(commands::clear::clrspin()).await
     }
 
-    // u_TODO - need to add clrflag and clovuv, but probably as normal WriteableGroups since they carry data
-
     /// Reset command counter command (RSTCC).
     /// 
     /// This command resets the chips' hardware-level command counters to 0.
