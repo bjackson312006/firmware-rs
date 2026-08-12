@@ -412,9 +412,10 @@ impl<SPI: SpiDevice> Line<SPI> {
     }
 }
 
-/// # Commands
+/// # Simple Commands
 /// 
-/// This impl block is for all the chip commands. These commands don't carry any payload data and don't read back any data either.
+/// This impl block is for all the simple oneshot chip commands.
+/// These commands have no parameters, don't carry any payload data, and don't read back any data.
 impl<SPI: SpiDevice> Line<SPI> {
     /// Private helper that sends a command frame. This is used by the public/exposed command functions.
     async fn command(&mut self, command: commands::Command) -> Result<(), Error<SPI::Error>> {
@@ -465,7 +466,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// This command will clear Cell Voltage Register A through
     /// Cell Voltage Register F, alongside the averaged cell voltage registers.
     /// All bytes in these registers are set to 0x8000 (their default) after this command.
-    pub async fn clear_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn clrcell(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::clear::clrcell()).await
     }
 
@@ -474,7 +475,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// This command will clear Filtered Cell Voltage Register A through
     /// Filtered Cell Voltage Register F. 
     /// All bytes in these registers are set to 0x8000 (their default) after this command.
-    pub async fn clear_filtered_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn clrfc(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::clear::clrfc()).await
     }
 
@@ -488,7 +489,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// All bytes in these registers are set to 0x8000 by this command. Note that
     /// the register value of 0x8000 resulting from this command is,
     /// for some registers, different than their default value after power-up.
-    pub async fn clear_aux_cells(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn clraux(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::clear::clraux()).await
     }
 
@@ -496,7 +497,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// 
     /// This command will clear S-Voltage Register A through S-Voltage Register F. All bytes in
     /// these registers are set to 0x8000 by this command.
-    pub async fn clear_spin(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn clrspin(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::clear::clrspin()).await
     }
 
@@ -505,7 +506,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// Reset command counter command (RSTCC).
     /// 
     /// This command resets the chips' hardware-level command counters to 0.
-    pub async fn reset_command_counter(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn rstcc(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::misc::rstcc()).await
     }
 
@@ -517,7 +518,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// the next device, after which the device enters sleep. This command
     /// achieves two functions: a quick transition to the low power state,
     /// and the ability to reset all of the switched power digital logic.
-    pub async fn soft_reset(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn srst(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::misc::srst()).await
     }
 
@@ -526,7 +527,7 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// This command enables the Low Power Cell Monitoring feature.
     /// For more information, see the "LCPM OPERATION" section on page 32 of the datasheet,
     /// and probably other datasheet sections as well.
-    pub async fn lcpm_enable(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn cmen(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::lpcm::cmen()).await
     }
 
@@ -535,7 +536,78 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// This command disables the Low Power Cell Monitoring feature.
     /// For more information, see the "LCPM OPERATION" section on page 32 of the datasheet,
     /// and probably other datasheet sections as well.
-    pub async fn lcpm_disable(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn cmdis(&mut self) -> Result<(), Error<SPI::Error>> {
         self.command(commands::lpcm::cmdis()).await
+    }
+}
+
+/// # ADC Commands
+///
+/// This impl block is for the oneshot ADC conversion commands. These carry no payload data
+/// and read nothing back, but they do have some parameters that control their behavior.
+impl<SPI: SpiDevice> Line<SPI> {
+    /// Start Cell Voltage ADC Conversion and Poll Status (ADCV).
+    ///
+    /// ### Parameters
+    /// - `redundancy`: Whether to also trigger the S-ADCs and compare their results against
+    /// the C-ADC averages. A mismatch beyond the threshold set by `CTH[2:0]` in Config A sets
+    /// that cell's `CSxFLT` flag in Status Register Group C.
+    /// - `acquisition`: How the conversion runs, and whether PWM discharge continues through it.
+    /// - `reset_filter`: Whether to reset the IIR filter.
+    /// - `open_wire`: Which cell inputs to enable open wire excitation on.
+    ///
+    /// ### Caveats
+    /// - Any ADCV interrupts the ongoing C-ADC conversions and restarts the C-ADCs. If you want
+    /// periodic redundant measurements, the datasheet recommends using `.adsv()` with
+    /// `Acquisition::Continuous` every fault tolerant time interval instead of re-issuing this.
+    /// - An ADCV with `AdcvRedundancy::Enabled` resets the open wire switches to open so the
+    /// C-ADC/S-ADC comparison is valid. Redundancy and open wire excitation therefore can't be
+    /// combined in one ADCV command, and you would need to use `.adsv()` for the open wire measurement.
+    ///
+    /// For more information, see Table 19 on page 20 of the datasheet.
+    pub async fn adcv(&mut self, redundancy: commands::adc::AdcvRedundancy, acquisition: commands::adc::Acquisition, reset_filter: commands::adc::ResetFilter, open_wire: commands::adc::OpenWire) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::adc::adcv(redundancy, acquisition, reset_filter, open_wire)).await
+    }
+
+    /// Start S-ADC Conversion and Poll Status (ADSV).
+    ///
+    /// ### Parameters
+    /// - `acquisition`: How the conversion runs, and whether PWM discharge continues through it.
+    /// - `open_wire`: Which cell inputs to enable open wire excitation on.
+    ///
+    /// Unlike `.adcv()`, this doesn't restart the C-ADCs. Issuing it with
+    /// `Acquisition::Continuous` while the C-ADCs are already converting continuously
+    /// synchronizes the S-ADCs to the C-ADC average of 8 conversions and compares the two,
+    /// which is the datasheet's recommended way to take periodic redundant measurements.
+    ///
+    /// For more information, see Table 19 on page 20 of the datasheet.
+    pub async fn adsv(&mut self, acquisition: commands::adc::Acquisition, open_wire: commands::adc::OpenWire) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::adc::adsv(acquisition, open_wire)).await
+    }
+
+    /// Start AUX ADC Conversions and Poll Status (ADAX).
+    ///
+    /// ### Parameters
+    /// - `open_wire`: Whether to run this conversion with open wire excitation on the AUX inputs.
+    /// - `pull`: Whether that excitation uses a pull-up or a pull-down current. This has no effect
+    /// unless `open_wire` is `OpenWireAux::On`.
+    /// - `channel`: Which AUX input to convert. `Aux1InputSelection::All` converts every one of them.
+    ///
+    /// For more information, see Table 52 on page 59 of the datasheet.
+    pub async fn adax(&mut self, open_wire: commands::adc::OpenWireAux, pull: commands::adc::Pull, channel: commands::adc::Aux1InputSelection) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::adc::adax(open_wire, pull, channel)).await
+    }
+
+    /// Start AUX2 ADC Conversions and Poll Status (ADAX2).
+    ///
+    /// ### Parameters
+    /// - `channel`: Which AUX input to convert. `Aux2InputSelection::All` converts every one of them.
+    ///
+    /// Unlike `.adax()`, this takes no open wire or pull parameters. Use `.adax()` if you need one of the internal
+    /// measurements.
+    ///
+    /// For more information, see Table 52 on page 59 of the datasheet.
+    pub async fn adax2(&mut self, channel: commands::adc::Aux2InputSelection) -> Result<(), Error<SPI::Error>> {
+        self.command(commands::adc::adax2(channel)).await
     }
 }

@@ -371,8 +371,6 @@ pub mod adc {
         Vmv = 0b10101,
         /// AUX Input = RES
         Res = 0b10110,
-        /// AUX Input = Reserved
-        Reserved = 0b10111,
     }
 
     /// Command Bit Description for `Selection for AUX Inputs ADAX2` (CH[3:0]) function.
@@ -406,17 +404,59 @@ pub mod adc {
         Gpio10 = 0b01010,
     }
 
-    /// Command Bit Description for `Continuous` (CONT) function. 
-    /// See Table 52 on page 59 of the datasheet.
-    /// This is a 1-bit field.
-    #[repr(u8)]
+    /// How a conversion runs, and whether PWM discharge continues through it.
+    ///
+    /// See Table 19 on page 20 and Table 52 on page 59 of the datasheet.
+    /// This enum models the possible combinations of DCP and CONT. The invalid
+    /// combaintions of those two bits are left out of this enum on purpose.
     #[derive(Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Continuous {
-        /// Single measurement, then standby.
-        Single = 0,
-        /// Continuous measurement.
-        Continuous = 1,
+    pub enum Acquisition {
+        /// Make a single measurement and then standby.
+        ///
+        /// PWM discharge is interrupted for the duration of any S-ADC measurement this
+        /// triggers. This is useful if you want to make sure the result isn't skewed by the discharge current's voltage drop
+        /// across the cell cabling.
+        /// 
+        /// This variant corresponds to `CONT = 0`, `DCP = 0`.
+        SingleShot,
+        /// Make a single measurement and then standby.
+        ///
+        /// PWM discharge continues through the measurement. This will keep balancing running,
+        /// but the discharge current's drop across the cell cabling may skew the result by an
+        /// amount that isn't predictable, so the intended voltage thresholds may not be
+        /// checked accurately.
+        /// 
+        /// This variant corresponds to  `CONT = 0`, `DCP = 1`.
+        SingleShotDischarging,
+        /// Measure continuously until stopped.
+        ///
+        /// The result registers will update at the ADC's conversion rate (1 ms for the C-ADCs,
+        /// 8 ms for the S-ADCs). To stop, you can send the same command again with
+        /// `Acquisition::SingleShot`. The ADC will take one last measurement and then turn off.
+        ///
+        /// PWM discharge stops and stays off unless a further command re-enables it.
+        /// 
+        /// This variant corresponds to `CONT = 1`, `DCP = 0`.
+        Continuous,
+    }
+
+    impl Acquisition {
+        /// The `DCP` bit for this acquisition mode.
+        const fn dcp(self) -> u8 {
+            match self {
+                Self::SingleShotDischarging => 1,
+                _ => 0,
+            }
+        }
+
+        /// The `CONT` bit for this acquisition mode.
+        const fn cont(self) -> u8 {
+            match self {
+                Self::Continuous => 1,
+                _ => 0,
+            }
+        }
     }
     
     /// Command Bit Description for `Open wire on C-ADCS and S-ADCs` (OW[1:0]) function. 
@@ -462,20 +502,7 @@ pub mod adc {
         PullUp = 1,
     }
 
-    /// Command Bit Description for `Discharge permitted` (DCP) function. 
-    /// See Table 52 on page 59 of the datasheet.
-    /// This is a 1-bit field.
-    #[repr(u8)]
-    #[derive(Clone, Copy)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum DischargePermitted {
-        /// Discharge not permitted during S-ADC measurements. See the Discharge During Measurements section of the datasheet for details.
-        DischargeNotPermitted = 0,
-        /// Discharge permitted during S-ADC measurements. See the Discharge During Measurements section of the datasheet for details.
-        DischargePermitted = 1,
-    }
-
-    /// Command Bit Description for `Reset filter` (RSTF) function. 
+    /// Command Bit Description for `Reset filter` (RSTF) function.
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 1-bit field.
     #[repr(u8)]
@@ -500,7 +527,17 @@ pub mod adc {
     }
 
     /// Start Cell Voltage ADC Conversion and Poll Status
-    pub const fn adcv(rd: AdcvRedundancy, cont: Continuous, dcp: DischargePermitted, rstf: ResetFilter, ow: OpenWire) -> Command {
+    ///
+    /// Note that *any* ADCV interrupts the ongoing C-ADC conversions and restarts the
+    /// C-ADCs. Because of this, the datasheet recommends triggering periodic redundant
+    /// measurements with `adsv()` (`Acquisition::Continuous`) rather than re-issuing this
+    /// command. Also note that an ADCV with `AdcvRedundancy::Enabled` resets the open wire
+    /// switches to open so that the C-ADC/S-ADC comparison is valid, so redundancy and open
+    /// wire excitation can't be combined in a single ADCV.
+    ///
+    /// See Table 19 on page 20 of the datasheet for what each combination of `rd` and `acq`
+    /// does to the ongoing conversions and to PWM discharge.
+    pub const fn adcv(rd: AdcvRedundancy, acq: Acquisition, rstf: ResetFilter, ow: OpenWire) -> Command {
         // Variable bits: [8]=RD, [7]=CONT, [4]=DCP, [2]=RSTF, [1]=OW[1], [0]=OW[0]
         let base: u16 = 0b01001100000;
         
@@ -527,15 +564,23 @@ pub mod adc {
         let mut base = Adcv::from_bits(base);
         base.set_b01_ow(ow as u8);
         base.set_b2_rstf(rstf as u8);
-        base.set_b4_dcp(dcp as u8);
-        base.set_b7_cont(cont as u8);
+        base.set_b4_dcp(acq.dcp());
+        base.set_b7_cont(acq.cont());
         base.set_b8_rd(rd as u8);
 
         Command::define(true, base.into_bits())
     }
 
     /// Start S-ADC Conversion and Poll Status
-    pub const fn adsv(cont: Continuous, dcp: DischargePermitted, ow: OpenWire) -> Command {
+    ///
+    /// Unlike `adcv()`, this doesn't restart the C-ADCs, so it's the datasheet's
+    /// recommended way to take periodic redundant measurements. Issuing this with
+    /// `Acquisition::Continuous` while the C-ADCs are already converting continuously
+    /// synchronizes the S-ADCs to the C-ADC average and compares the two.
+    ///
+    /// See Table 19 on page 20 of the datasheet for what each `acq` value does to the
+    /// ongoing conversions and to PWM discharge.
+    pub const fn adsv(acq: Acquisition, ow: OpenWire) -> Command {
         // Variable bits: [7]=CONT, [4]=DCP, [1]=OW[1], [0]=OW[0]
         let base: u16 = 0b00101101000;
 
@@ -557,8 +602,8 @@ pub mod adc {
 
         let mut base = Adsv::from_bits(base);
         base.set_b01_ow(ow as u8);
-        base.set_b4_dcp(dcp as u8);
-        base.set_b7_cont(cont as u8);
+        base.set_b4_dcp(acq.dcp());
+        base.set_b7_cont(acq.cont());
 
         Command::define(true, base.into_bits())
     }
