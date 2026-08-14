@@ -77,6 +77,7 @@ pub enum InitError {
 ///
 /// Indexed with 0 being the device nearest the host. `Response::device` returns `None` for a
 /// device whose data PEC failed, so one bad device does not invalidate the rest of the chain.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Response<G> {
     blocks: [[u8; BLOCK_BYTES]; MAX_CHIPS],
     used: usize,
