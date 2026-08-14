@@ -8,8 +8,9 @@ use super::super::commands;
 /// 
 /// This value is a constant identifier for the chip. You can read it whenever you want to
 /// determine the exact chip you are talking to. If this value ever comes back unexpected at runtime,
-/// either some transmission error corrupted the reading (although this should be caught by the PEC check and return
-/// `None` for your reading), or you're not reading the chip(s) you are expecting (or in the order you are expecting).
+/// either some transmission error corrupted the reading (although this should be caught by the PEC check, which
+/// would report `PecStatus::Failed` for that chip's response), or you're not reading the chip(s) you are expecting
+/// (or in the order you are expecting).
 /// 
 /// To get the overall unique ID, use the `.sid()` function. The `.device_id()` and `.is_adbms6830b()` functions
 /// may also be useful if you need to confirm that a chip is in-fact an ADBMS6830B and not some other chip/variant.

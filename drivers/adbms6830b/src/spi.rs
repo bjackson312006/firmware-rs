@@ -2,8 +2,6 @@
 //!
 //! See the `Line` struct. That is the main guy here
 
-use core::marker::PhantomData;
-
 use embedded_hal_async::spi::{Operation, SpiDevice};
 
 use crate::chip::commands;
@@ -71,97 +69,193 @@ pub enum InitError {
     TooManyDevices,
 }
 
-/// Per-device results of a read on a `Line`.
-///
-/// To access the results for each device, use the `.device()` function.
-///
-/// Indexed with 0 being the device nearest the host. `Response::device` returns `None` for a
-/// device whose data PEC failed, so one bad device does not invalidate the rest of the chain.
+/// Result of the data PEC check on an individual chip's response.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Response<G> {
-    blocks: [[u8; BLOCK_BYTES]; MAX_CHIPS],
-    used: usize,
-    _group: PhantomData<G>,
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PecStatus {
+    /// The data PEC matched, so the data is trustworthy.
+    Success,
+    /// The data PEC did not match, so the data was corrupted somewhere on the way here.
+    Failed,
 }
 
-impl<G: ReadableGroup> Response<G> {
-    /// Builds an empty response covering `used` devices.
-    const fn empty(used: usize) -> Self {
+impl PecStatus {
+    /// Whether the PEC check passed.
+    pub const fn is_success(self) -> bool {
+        matches!(self, Self::Success)
+    }
+
+    /// Whether the PEC check failed.
+    pub const fn is_failed(self) -> bool {
+        matches!(self, Self::Failed)
+    }
+}
+
+/// An individual chip's response to a read on a `Line`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ChipResponse<G> {
+    data: G,
+    command_counter: u8,
+    pec_status: PecStatus,
+}
+
+impl<G: Copy> ChipResponse<G> {
+    /// The requested data sent back by this chip.
+    /// 
+    /// Note: It is probably not a good idea to trust this data if `.pec()` returns `Failed`.
+    pub const fn data(&self) -> G {
+        self.data
+    }
+
+    /// Command counter (`CCNT[5:0]`) for this chip.
+    /// 
+    /// Note: It is probably not a good idea to trust this data if `.pec()` returns `Failed`.
+    pub const fn command_counter(&self) -> u8 {
+        self.command_counter
+    }
+
+    /// Whether this device's data PEC check was successful.
+    pub const fn pec(&self) -> PecStatus {
+        self.pec_status
+    }
+}
+
+impl<G: ReadableGroup> ChipResponse<G> {
+    /// Decodes one device's block into a ChipResponse.
+    fn from_block(block: &[u8; BLOCK_BYTES]) -> Self {
+        let mut data = [0u8; GROUP_BYTES];
+        data.copy_from_slice(&block[..GROUP_BYTES]);
+        let pec = DataPecRx::from_bytes([block[GROUP_BYTES], block[GROUP_BYTES + 1]]);
+
         Self {
-            blocks: [[0; BLOCK_BYTES]; MAX_CHIPS],
-            used,
-            _group: PhantomData,
+            data: G::from_bytes(data),
+            command_counter: pec.ccnt(),
+            pec_status: if pec.verify(&data) {
+                PecStatus::Success
+            } else {
+                PecStatus::Failed
+            },
         }
     }
+}
 
-    fn block(&self, index: usize) -> Option<&[u8; BLOCK_BYTES]> {
-        (index < self.used).then(|| &self.blocks[index])
+/// Logs a device's data alongside its command counter and PEC status.
+#[cfg(feature = "defmt")]
+impl<G: defmt::Format> defmt::Format for ChipResponse<G> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "ChipResponse {{ data: {}, command_counter: {=u8}, pec: {} }}",
+            self.data,
+            self.command_counter,
+            self.pec_status
+        )
+    }
+}
+
+/// Responses from each chip on a `Line` after a read.
+#[doc = docs::isospi_indexing_example!()]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Responses<G> {
+    chips: [ChipResponse<G>; MAX_CHIPS],
+    used: usize,
+}
+
+impl<G: ReadableGroup> Responses<G> {
+    /// Decodes the first `used` blocks that came in from SPI.
+    fn from_blocks(blocks: &[[u8; BLOCK_BYTES]; MAX_CHIPS], used: usize) -> Self {
+        Self {
+            chips: core::array::from_fn(|index| {
+                if index < used {
+                    ChipResponse::from_block(&blocks[index])
+                } else {
+                    ChipResponse {
+                        data: G::from_bytes([0; GROUP_BYTES]),
+                        command_counter: 0,
+                        pec_status: PecStatus::Failed,
+                    }
+                }
+            }),
+            used,
+        }
+    }
+}
+
+impl<G> Responses<G> {
+    /// Returns this `Responses` as a slice of `ChipResponses`.
+    /// 
+    /// Note: This is indexed with the closest chip to the host first. So, index 0
+    /// would be the response from the closest chip to the host.
+    pub fn as_slice(&self) -> &[ChipResponse<G>] {
+        &self.chips[..self.used]
     }
 
-    /// Number of devices this response covers.
+    /// Number of chips this response covers.
     pub fn len(&self) -> usize {
         self.used
     }
 
-    /// Whether this response covers no devices.
+    /// Whether this response covers no chips.
     pub fn is_empty(&self) -> bool {
         self.used == 0
     }
 
-    /// Returns the data read from a chip.
-    ///
-    /// ### Parameters
-    /// - `index`: The index of the chip whose data you want to read. `0` corresponds to the
-    /// closest chip to the host/the start of this line.
-    ///
-    /// This function will either return the data read from that chip, or `None` if its PEC failed (or the index is out of range).
-    ///
-    #[doc = docs::isospi_indexing_example!()]
-    pub fn device(&self, index: usize) -> Option<G> {
-        let block = self.block(index)?;
-        let mut data = [0u8; GROUP_BYTES];
-        data.copy_from_slice(&block[..GROUP_BYTES]);
-        let pec = DataPecRx::from_bytes([block[GROUP_BYTES], block[GROUP_BYTES + 1]]);
-        pec.verify(&data).then(|| G::from_bytes(data))
+    /// Iterator for every chip's ChipResponse.
+    /// 
+    /// Note: This is indexed with the closest chip to the host first. So, index 0
+    /// would be the response from the closest chip to the host.
+    pub fn iter(&self) -> core::slice::Iter<'_, ChipResponse<G>> {
+        self.as_slice().iter()
     }
 
-    /// Command counter (`CCNT[5:0]`) reported by device `index`.
-    ///
-    /// This will return `None` if the index is out of bounds.
-    pub fn command_counter(&self, index: usize) -> Option<u8> {
-        let block = self.block(index)?;
-        Some(DataPecRx::from_bytes([block[GROUP_BYTES], block[GROUP_BYTES + 1]]).ccnt())
-    }
-
-    /// Indices of devices whose data PEC failed.
-    pub fn failures(&self) -> impl Iterator<Item = usize> + '_ {
-        (0..self.used).filter(|&i| self.device(i).is_none())
-    }
-
-    /// Whether every device passed its PEC check.
+    /// Whether every chip passed its PEC check.
     pub fn all_ok(&self) -> bool {
-        (0..self.used).all(|i| self.device(i).is_some())
+        self.iter().all(|chip| chip.pec_status.is_success())
     }
 
-    /// Data from every device (with `None` where a PEC failed).
-    ///
-    /// Note: The data from the closest chip to the host comes first.
-    pub fn iter(&self) -> impl Iterator<Item = Option<G>> + '_ {
-        (0..self.used).map(|i| self.device(i))
+    /// Indices of the chip whose data PEC failed.
+    pub fn failures(&self) -> impl Iterator<Item = usize> + '_ {
+        self.iter()
+            .enumerate()
+            .filter_map(|(index, chip)| chip.pec_status.is_failed().then_some(index))
+    }
+}
+
+/// Lets a `Responses` be used anywhere a `&[ChipResponse<G>]` works (indexing, `.get()`, `.first()`, etc).
+impl<G> core::ops::Deref for Responses<G> {
+    type Target = [ChipResponse<G>];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<'a, G> IntoIterator for &'a Responses<G> {
+    type Item = &'a ChipResponse<G>;
+    type IntoIter = core::slice::Iter<'a, ChipResponse<G>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<G> IntoIterator for Responses<G> {
+    type Item = ChipResponse<G>;
+    type IntoIter = core::iter::Take<core::array::IntoIter<ChipResponse<G>, MAX_CHIPS>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let used = self.used;
+        self.chips.into_iter().take(used)
     }
 }
 
 /// Logs how many devices the response covers and whether they all passed their PEC check.
-///
-/// The per-device data isn't logged here since it would have to be decoded device by device anyway.
-/// If you need to log that data, use `device()`/`iter()`. This also lets you choose specifically what
-/// data you want to log.
 #[cfg(feature = "defmt")]
-impl<G: ReadableGroup> defmt::Format for Response<G> {
+impl<G> defmt::Format for Responses<G> {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
             f,
-            "Response {{ len: {=usize}, all_ok: {=bool} }}",
+            "Responses {{ len: {=usize}, all_ok: {=bool} }}",
             self.used,
             self.all_ok()
         )
@@ -174,7 +268,7 @@ pub struct Line<SPI> {
     num_chips: usize,
 }
 
-/// Logs the line's current chip count. The underlying SPI device isn't logged since it isn't gauraunteed to implement `defmt::Format`.
+/// Logs the line's current chip count.
 #[cfg(feature = "defmt")]
 impl<SPI> defmt::Format for Line<SPI> {
     fn format(&self, f: defmt::Formatter) {
@@ -337,49 +431,47 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// Here's an example of how this function might be used:
     /// ```rust,no_run
     /// // Read the three closest chips' CellVoltagesA registers.
-    /// let responses: Response<CellVoltagesA> = match line.read::<CellVoltagesA>(3).await {
-    ///     Ok(response) => response,
+    /// let responses: Responses<CellVoltagesA> = match line.read::<CellVoltagesA>(3).await {
+    ///     Ok(responses) => responses,
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// };
     ///
     /// // Loop through the returned responses for each chip.
     /// for (index, response) in responses.iter().enumerate() {
     ///     // Check each chip for PEC errors.
-    ///     let cells_a: CellVoltagesA = match response {
-    ///         None => {
-    ///             warn!("PEC error when reading chip {}!!!", index);
-    ///             return;
-    ///         },
-    ///         Some(cells_a) => cells_a,
-    ///     };
+    ///     if response.pec().is_failed() {
+    ///         warn!("PEC error when reading chip {}!!!", index);
+    ///         return;
+    ///     }
     ///
     ///     // Log the data from each chip's CellVoltagesA register.
+    ///     let cells_a: CellVoltagesA = response.data();
     ///     info!("Chip {}: Cell 1 voltage: {} uV", index, cells_a.c1v().as_microvolts());
     ///     info!("Chip {}: Cell 2 voltage: {} uV", index, cells_a.c2v().as_microvolts());
     ///     info!("Chip {}: Cell 3 voltage: {} uV", index, cells_a.c3v().as_microvolts());
     /// }
     /// ```
-    /// 
+    ///
     #[doc = docs::isospi_indexing_example!()]
-    pub async fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<Response<G>, Error<SPI::Error>> {
+    pub async fn read<G: ReadableGroup>(&mut self, count: usize) -> Result<Responses<G>, Error<SPI::Error>> {
         if self.num_chips == 0 {
             return Err(Error::NoDevices);
         }
-        
+
         if count > self.num_chips {
             return Err(Error::TooManyDevices);
         }
 
-        let mut response = Response::<G>::empty(count);
+        let mut blocks = [[0u8; BLOCK_BYTES]; MAX_CHIPS];
         self.spi
             .transaction(&mut [
                 Operation::Write(&G::READ_COMMAND.to_bytes()),
-                Operation::Read(&mut response.blocks.as_flattened_mut()[..count * BLOCK_BYTES]),
+                Operation::Read(&mut blocks.as_flattened_mut()[..count * BLOCK_BYTES]),
             ])
             .await
             .map_err(Error::Spi)?;
 
-        Ok(response)
+        Ok(Responses::from_blocks(&blocks, count))
     }
 
     /// Reads one register group from every device this line reaches.
@@ -388,31 +480,29 @@ impl<SPI: SpiDevice> Line<SPI> {
     /// Here's an example of how this function might be used:
     /// ```rust,no_run
     /// // Read all chips' StatusB registers.
-    /// let responses: Response<StatusB> = match line.read_all::<StatusB>().await {
-    ///     Ok(response) => response,
+    /// let responses: Responses<StatusB> = match line.read_all::<StatusB>().await {
+    ///     Ok(responses) => responses,
     ///     Err(err) => { warn!("evil error: {}", err); return; }
     /// };
     ///
     /// // Loop through the returned responses for each chip.
     /// for (index, response) in responses.iter().enumerate() {
     ///     // Check each chip for PEC errors.
-    ///     let status_b: StatusB = match response {
-    ///         None => {
-    ///             warn!("PEC error when reading chip {}!!!", index);
-    ///             return;
-    ///         },
-    ///         Some(status_b) => status_b,
-    ///     };
+    ///     if response.pec().is_failed() {
+    ///         warn!("PEC error when reading chip {}!!!", index);
+    ///         return;
+    ///     }
     ///
     ///     // Log the data from each chip's StatusB register.
+    ///     let status_b: StatusB = response.data();
     ///     info!("Chip {}: Digital power supply voltage: {} uV", index, status_b.vd().as_microvolts());
     ///     info!("Chip {}: Analog power supply voltage: {} uV", index, status_b.va().as_microvolts());
     ///     info!("Chip {}: VREF2 across resistor: {} uV", index, status_b.vres().as_microvolts());
     /// }
     /// ```
-    /// 
+    ///
     #[doc = docs::isospi_indexing_example!()]
-    pub async fn read_all<G: ReadableGroup>(&mut self) -> Result<Response<G>, Error<SPI::Error>> {
+    pub async fn read_all<G: ReadableGroup>(&mut self) -> Result<Responses<G>, Error<SPI::Error>> {
         self.read::<G>(self.num_chips).await
     }
 
