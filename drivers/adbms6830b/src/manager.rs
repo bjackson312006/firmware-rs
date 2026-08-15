@@ -52,13 +52,16 @@ impl ChipState {
 
 /// Per-chip results of a read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Responses<G, const N: usize> {
+pub struct Responses<G, E, const N: usize> {
     chips: [Option<ChipResponse<G>>; N],
-    failed: [bool; 2],
+    errors: [Option<Error<E>>; 2],
 }
 
-impl<G: Copy, const N: usize> Responses<G, N> {
-    /// The response from one chip, or `None` if its line's transaction failed.
+impl<G: Copy, E, const N: usize> Responses<G, E, N> {
+    /// The response from one chip.
+    /// 
+    /// If the chip's line transaction failed, this will return `None` (because that entire line would not be
+    /// carrying any data). Upon getting a `None` response, you may look up the culprit SPI error via the `line_error()` function.
     pub fn chip(&self, chip: usize) -> Option<ChipResponse<G>> {
         self.chips[chip]
     }
@@ -68,9 +71,10 @@ impl<G: Copy, const N: usize> Responses<G, N> {
         self.chips.iter().copied()
     }
 
-    /// Whether a line's transaction failed.
-    pub fn line_failed(&self, line: LineId) -> bool {
-        self.failed[line as usize]
+    /// Returns the error that failed a line's transaction, if there was one.
+    /// If the chip's line had a successful read, this will return `None` (since there's no error to report).
+    pub fn line_error(&self, line: LineId) -> Option<&Error<E>> {
+        self.errors[line as usize].as_ref()
     }
 
     /// Whether every chip answered and passed its PEC check.
@@ -82,15 +86,15 @@ impl<G: Copy, const N: usize> Responses<G, N> {
 }
 
 #[cfg(feature = "defmt")]
-impl<G: Copy, const N: usize> defmt::Format for Responses<G, N> {
+impl<G: Copy, E, const N: usize> defmt::Format for Responses<G, E, N> {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
             f,
             "Responses {{ chips: {=usize}, all_ok: {=bool}, line_a_failed: {=bool}, line_b_failed: {=bool} }}",
             N,
             self.all_ok(),
-            self.failed[0],
-            self.failed[1]
+            self.errors[0].is_some(),
+            self.errors[1].is_some()
         )
     }
 }
@@ -242,12 +246,11 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Reads a register group from every chip.
-    pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G, N> {
+    pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G, SPI::Error, N> {
         let line_a = self.read_line::<G>(LineId::A).await;
         let line_b = self.read_line::<G>(LineId::B).await;
 
         let mut chips = [None; N];
-        let failed = [line_a.is_err(), line_b.is_err()];
 
         for (chip, slot) in chips.iter_mut().enumerate() {
             let responses = match self.line_of(chip) {
@@ -267,7 +270,10 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
             *slot = Some(*response);
         }
 
-        Responses { chips, failed }
+        Responses {
+            chips,
+            errors: [line_a.err(), line_b.err()],
+        }
     }
 
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
