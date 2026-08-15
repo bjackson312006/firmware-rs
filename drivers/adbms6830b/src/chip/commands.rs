@@ -60,6 +60,11 @@ impl CommandFrame {
     pub const fn increments(&self) -> bool {
         self.command.increments()
     }
+
+    /// Whether this command resets the devices' command counters to 0.
+    pub const fn resets_counter(&self) -> bool {
+        self.command.resets_counter()
+    }
 }
 
 impl Command {
@@ -93,6 +98,14 @@ impl Command {
 
     /// Returns whether or not the command counter increments for this command.
     pub const fn increments(&self) -> bool { self.inc }
+
+    /// Whether this command resets the devices' command counters to 0.
+    ///
+    /// RSTCC does it for obvious reasons. SRST does it by putting the devices to sleep. See the "COMMAND COUNTER" section on page 53 of the datasheet.
+    pub const fn resets_counter(&self) -> bool {
+        let code = self.code.into_bits();
+        code == misc::rstcc().code.into_bits() || code == misc::srst().code.into_bits()
+    }
 
     /// Returns this `Command` as a 4-byte command frame.
     pub const fn frame(&self) -> CommandFrame {
