@@ -28,31 +28,37 @@ pub struct Command {
 }
 
 /// A Command Frame (the command code plus its command PEC). This is four bytes total.
+/// (technically six bytes because `Command` has the inc metadata but to_bytes() serializes it into four bytes)
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CommandFrame {
-    code: CommandCode,
+    command: Command,
     pec: super::pec::CommandPec,
 }
 impl CommandFrame {
     /// Creates a `CommandFrame` from a `Command`, computing its command PEC.
     pub const fn from_command(command: &Command) -> Self {
         let pec = super::pec::CommandPec::new(&[command.cmd0(), command.cmd1()]);
-        Self { code: command.code(), pec }
+        Self { command: *command, pec }
     }
 
     /// The command code (`CC[10:0]`).
-    pub const fn code(&self) -> CommandCode { self.code }
+    pub const fn code(&self) -> CommandCode { self.command.code() }
 
     /// The command PEC.
     pub const fn pec(&self) -> super::pec::CommandPec { self.pec }
 
     /// Converts a `CommandFrame` into bytes.
     pub const fn to_bytes(self) -> [u8; 4] {
-        let code = self.code.into_bits();
+        let code = self.command.code().into_bits();
         let cmd0 = (code >> 8) as u8 & 0x07;
         let cmd1 = (code & 0xFF) as u8;
         [cmd0, cmd1, self.pec.pec0(), self.pec.pec1()]
+    }
+
+    /// Whether or not this command
+    pub const fn increments(&self) -> bool {
+        self.command.increments()
     }
 }
 
