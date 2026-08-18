@@ -27,8 +27,12 @@ pub enum LineId {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChipState {
+    /// Expected command count.
     expected: u8,
+    /// Reported command count (reported via reads).
     reported: u8,
+    /// Times the command count has been manually re-synced. 
+    resync_count: u8,
 }
 
 impl ChipState {
@@ -40,6 +44,11 @@ impl ChipState {
     /// What this chip reported on the last read of it that passed its PEC.
     pub const fn reported(&self) -> u8 {
         self.reported
+    }
+
+    /// Times this chip's command count has been manually re-synced.
+    pub const fn resync_count(&self) -> u8 {
+        self.resync_count
     }
 
     /// Whether the reported counter matches the expected one.
@@ -99,15 +108,40 @@ impl<G: Copy, E, const N: usize> defmt::Format for Responses<G, E, N> {
     }
 }
 
+/// Newtype representing how many chips are on Line A.
+/// This newtype is kinda pointless but it is useful for docs since it
+/// is somewhat hard to remember what this value actually means.
+/// 
+/// TLDR: The inner represents the number of chips that are on Line A. In other words, chips `0..self.0` are reached from Line A, with `self.0` not being inclusive.
+/// This defaults to `N`, where `N` is the total number of chips there are across both lines, no matter what the split is. So if `N = 10`, `OnLineA(10)` would mean that
+/// all 10 chips are on Line A. "All 10 chips" corresponds to Chip 0 through Chip 9 (since the chips are 0-indexed).
+/// Likewise, `OnLineA(0)` would mean that all 10 chips are on Line B.
+/// 
+/// Examples:
+/// - `OnLineA(10)`: All 10 chips are on Line A
+/// - `OnLineA(0)`: All 10 chips are on Line B
+/// - `OnLineA(4)`: Chips `0..4` are on Line A, and chips `4..10` are on Line B. Aka: Chip 0 through Chip 3 are on Line A, and Chip 4 through Chip 9 are on Line B.
+/// - `OnLineA(6)`: Chips `0..6` are on Line A, and chips `6..10` are on Line B. Aka: Chip 0 through Chip 5 are on Line A, and Chip 6 through Chip 9 are on Line B.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct OnLineA(pub usize);
+impl From<usize> for OnLineA {
+    fn from(num: usize) -> Self {
+        Self(num)
+    }
+}
+impl From<OnLineA> for usize {
+    fn from(num: OnLineA) -> Self {
+        num.0
+    }
+}
+
 /// Two isoSPI lines reaching `N` chips, plus the state tracked for those chips.
 ///
 #[doc = docs::isospi_indexing_example!()]
 pub struct Manager<SPI, const N: usize> {
     line_a: Line<SPI, N>,
     line_b: Line<SPI, N>,
-    /// Tracks the chips currently on Line A.
-    /// Chips `0..on_line_a` are reached from line A. The rest are reached from line B.
-    on_line_a: usize,
+    on_line_a: OnLineA,
     /// State metadata for each chip
     chips: [ChipState; N],
 }
@@ -130,10 +164,11 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
         Self {
             line_a,
             line_b,
-            on_line_a: N,
+            on_line_a: OnLineA(N),
             chips: [ChipState {
                 expected: 0,
                 reported: 0,
+                resync_count: 0,
             }; N],
         }
     }
@@ -152,14 +187,15 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     ///
     /// This should be called after a wakeup or any time the chips may have slept (which happens automatically when the watchdog expires).
     /// u_TODO: it might be a good idea to have `Manager` own a thread that detects the SLEEP bit from the status register and calls this automatically. I guess probably just wherever the isospi recovery thread works
-    pub fn sync_command_counters(&mut self) {
+    pub fn resync_command_counters(&mut self) {
         for chip in &mut self.chips {
             chip.expected = chip.reported;
+            chip.resync_count += 1;
         }
     }
 
     /// How many chips are currently routed to line A.
-    pub const fn split(&self) -> usize {
+    pub const fn split(&self) -> OnLineA {
         self.on_line_a
     }
 
@@ -167,8 +203,8 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     ///
     /// This only changes routing. You have to assert `COMM_BK` on the chips on either side of the break first, or
     /// commands will keep moving across it.
-    pub fn set_split(&mut self, on_line_a: usize) -> Result<(), Error<SPI::Error>> {
-        if on_line_a > N {
+    pub fn set_split(&mut self, on_line_a: OnLineA) -> Result<(), Error<SPI::Error>> {
+        if usize::from(on_line_a) > N {
             return Err(Error::TooManyDevices);
         }
         self.on_line_a = on_line_a;
@@ -176,8 +212,8 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Which line a chip is currently reached from.
-    pub const fn line_of(&self, chip: usize) -> LineId {
-        if chip < self.on_line_a {
+    pub fn line_of(&self, chip: usize) -> LineId {
+        if chip < self.on_line_a.into() {
             LineId::A
         } else {
             LineId::B
@@ -185,8 +221,8 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// PRIVATE! A chip's index from the point of view of its line.
-    const fn index_of(&self, chip: usize) -> usize {
-        if chip < self.on_line_a {
+    fn index_of(&self, chip: usize) -> usize {
+        if chip < self.on_line_a.into() {
             chip
         } else {
             N - 1 - chip
@@ -194,10 +230,10 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// PRIVATE! How many chips are on a line.
-    const fn count(&self, line: LineId) -> usize {
+    fn count(&self, line: LineId) -> usize {
         match line {
-            LineId::A => self.on_line_a,
-            LineId::B => N - self.on_line_a,
+            LineId::A => self.on_line_a.into(),
+            LineId::B => N - usize::from(self.on_line_a),
         }
     }
 
@@ -216,8 +252,8 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
         }
 
         let chips = match line {
-            LineId::A => 0..self.on_line_a,
-            LineId::B => self.on_line_a..N,
+            LineId::A => 0..self.on_line_a.into(),
+            LineId::B => self.on_line_a.into()..N,
         };
 
         for chip in chips {
