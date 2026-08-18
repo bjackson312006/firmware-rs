@@ -2,7 +2,7 @@
 //!
 //! - `chip`: the register and command types the device speaks in.
 //! - `spi`: `Line`, the transport for one isoSPI line of daisy-chained devices.
-//! - `manager`: `Manager`, two lines plus the routing and command counter state tracked across them.
+//! - `Api`: `Api`, two lines plus the routing and command counter state tracked across them.
 //!
 //! ### Defmt Support
 //! - The `defmt` feature flag will implement `defmt::Format` for every public type this driver exposes. This makes
@@ -17,4 +17,5 @@
 pub mod chip;
 pub mod manager;
 pub mod line;
+pub mod service;
 mod docs;

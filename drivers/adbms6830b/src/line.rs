@@ -278,7 +278,7 @@ impl<SPI: SpiDevice, const N: usize> Line<SPI, N> {
 
     /// Sends a poll command and reports whether all `count` devices have finished.
     ///
-    /// This does not wait! You need to keep polling it until it returns `true`, or use the manager's
+    /// This does not wait! You need to keep polling it until it returns `true`, or use the Api's
     /// `*_autoconvert()` helpers (which do this automatically).
     pub async fn poll(&mut self, command: Command, count: usize) -> Result<bool, Error<SPI::Error>> {
         if count > N {

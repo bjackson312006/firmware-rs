@@ -138,7 +138,7 @@ impl From<OnLineA> for usize {
 /// Two isoSPI lines reaching `N` chips, plus the state tracked for those chips.
 ///
 #[doc = docs::isospi_indexing_example!()]
-pub struct Manager<SPI, const N: usize> {
+pub struct Api<SPI, const N: usize> {
     line_a: Line<SPI, N>,
     line_b: Line<SPI, N>,
     on_line_a: OnLineA,
@@ -147,20 +147,20 @@ pub struct Manager<SPI, const N: usize> {
 }
 
 #[cfg(feature = "defmt")]
-impl<SPI, const N: usize> defmt::Format for Manager<SPI, N> {
+impl<SPI, const N: usize> defmt::Format for Api<SPI, N> {
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(
             f,
-            "Manager {{ chips: {=usize}, on_line_a: {=usize} }}",
+            "Api {{ chips: {=usize}, on_line_a: {=usize} }}",
             N,
             self.on_line_a
         )
     }
 }
 
-impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
-    /// Builds a manager. This defaults to every chip routed to line A.
-    pub fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>) -> Self {
+impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
+    /// Builds a Api. This defaults to every chip routed to line A.
+    pub const fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>) -> Self {
         Self {
             line_a,
             line_b,
@@ -183,27 +183,27 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
         &self.chips
     }
 
-    /// Adopts every chip's reported counter as its expected one.
+    /// CRATE PRIVATE! Adopts every chip's reported counter as its expected one.
     ///
     /// This should be called after a wakeup or any time the chips may have slept (which happens automatically when the watchdog expires).
-    /// u_TODO: it might be a good idea to have `Manager` own a thread that detects the SLEEP bit from the status register and calls this automatically. I guess probably just wherever the isospi recovery thread works
-    pub fn resync_command_counters(&mut self) {
+    /// u_TODO: it might be a good idea to have `Api` own a thread that detects the SLEEP bit from the status register and calls this automatically. I guess probably just wherever the isospi recovery thread works
+    pub(crate) fn resync_command_counters(&mut self) {
         for chip in &mut self.chips {
             chip.expected = chip.reported;
             chip.resync_count += 1;
         }
     }
 
-    /// How many chips are currently routed to line A.
-    pub const fn split(&self) -> OnLineA {
+    /// CRATE PRIVATE! How many chips are currently routed to line A.
+    pub(crate) const fn split(&self) -> OnLineA {
         self.on_line_a
     }
 
-    /// Routes chips `0..on_line_a` to line A and the rest to line B.
+    /// CRATE PRIVATE! Routes chips `0..on_line_a` to line A and the rest to line B.
     ///
     /// This only changes routing. You have to assert `COMM_BK` on the chips on either side of the break first, or
     /// commands will keep moving across it.
-    pub fn set_split(&mut self, on_line_a: OnLineA) -> Result<(), Error<SPI::Error>> {
+    pub(crate) fn set_split(&mut self, on_line_a: OnLineA) -> Result<(), Error<SPI::Error>> {
         if usize::from(on_line_a) > N {
             return Err(Error::TooManyDevices);
         }
@@ -267,8 +267,8 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
         }
     }
 
-    /// Reads a register group from every chip on one line.
-    pub async fn read_line<G: ReadableGroup>(
+    /// PRIVATE! Reads a register group from every chip on one line.
+    async fn read_line<G: ReadableGroup>(
         &mut self,
         line: LineId,
     ) -> Result<crate::line::Responses<G, N>, Error<SPI::Error>> {
@@ -282,7 +282,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Reads a register group from every chip.
-    pub async fn read<G: ReadableGroup>(&mut self) -> Responses<G, SPI::Error, N> {
+    pub(crate) async fn read<G: ReadableGroup>(&mut self) -> Responses<G, SPI::Error, N> {
         let line_a = self.read_line::<G>(LineId::A).await;
         let line_b = self.read_line::<G>(LineId::B).await;
 
@@ -313,7 +313,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
-    pub async fn write<G: WritableGroup>(
+    pub(crate) async fn write<G: WritableGroup>(
         &mut self,
         groups: &[G; N],
     ) -> Result<(), Error<SPI::Error>> {
@@ -339,14 +339,14 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Sends a command to every chip on both lines.
-    pub async fn command(&mut self, command: Command) -> Result<(), Error<SPI::Error>> {
+    pub(crate) async fn command(&mut self, command: Command) -> Result<(), Error<SPI::Error>> {
         let line_a = self.command_line(LineId::A, command).await;
         let line_b = self.command_line(LineId::B, command).await;
         line_a.and(line_b)
     }
 
-    /// Sends a command to the chips on one line.
-    pub async fn command_line(
+    /// CRATE PRIVATE! Sends a command to the chips on one line.
+    pub(crate) async fn command_line(
         &mut self,
         line: LineId,
         command: Command,
@@ -363,14 +363,14 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     ///
     /// This does not wait! It just returns a bool, so you need to keep polling it until it returns true (indicating that every chip has finished).
     /// If you want that done automatically for you, see the `*_autoconvert()` helpers.
-    pub async fn poll(&mut self, command: Command) -> Result<bool, Error<SPI::Error>> {
+    pub(crate) async fn poll(&mut self, command: Command) -> Result<bool, Error<SPI::Error>> {
         let line_a = self.poll_line(LineId::A, command).await;
         let line_b = self.poll_line(LineId::B, command).await;
         Ok(line_a? && line_b?)
     }
 
-    /// Sends a poll command to one line. A line with no chips reports `true`.
-    pub async fn poll_line(
+    /// PRIVATE! Sends a poll command to one line. A line with no chips reports `true`.
+    async fn poll_line(
         &mut self,
         line: LineId,
         command: Command,
@@ -384,21 +384,21 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
         self.line_mut(line).poll(command, count).await
     }
 
-    /// Wakes every chip on both lines out of the idle or sleep state.
+    /// CRATE PRIVATE! Wakes every chip on both lines out of the idle or sleep state.
     ///
     /// Chips that were asleep come back with their counters at 0. This is not detected automatically! So, it is a
     /// good idea to follow this with a read and `sync_command_counters()`.
-    pub async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub(crate) async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
         let (count_a, count_b) = (self.count(LineId::A), self.count(LineId::B));
         self.line_a.wakeup(count_a).await?;
         self.line_b.wakeup(count_b).await
     }
 
-    /// Counts the chips reachable on one line. This stops at the first bad PEC (note: this means that comm
+    /// CRATE PRIVATE! Counts the chips reachable on one line. This stops at the first bad PEC (note: this means that comm
     /// errors that result in a bad PEC could look like the line end, so probably call this a few times).
     ///
     /// Useful for locating a break. This doesn't change the split.
-    pub async fn detect_chips(&mut self, line: LineId) -> Result<usize, Error<SPI::Error>> {
+    pub(crate) async fn detect_chips(&mut self, line: LineId) -> Result<usize, Error<SPI::Error>> {
         self.line_mut(line).detect_chips().await
     }
 }
@@ -407,7 +407,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
 ///
 /// Each helper starts a conversion, waits the time it is expected to take, and then polls until every
 /// chip reports that it's finished.
-impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
+impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// Sends the `start` command, waits `conversion_ms` milliseconds, and then polls until done (or `timeout_ms` elapses).
     async fn autoconvert(
         &mut self,
@@ -440,7 +440,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Starts a cell voltage conversion (ADCV) and waits for it to finish.
-    pub async fn adcv_autoconvert(
+    pub(crate) async fn adcv_autoconvert(
         &mut self,
         redundancy: commands::adc::AdcvRedundancy,
         acquisition: commands::adc::AutoAcquisition,
@@ -463,7 +463,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Starts an S-ADC conversion (ADSV) and waits for it to finish.
-    pub async fn adsv_autoconvert(
+    pub(crate) async fn adsv_autoconvert(
         &mut self,
         acquisition: commands::adc::AutoAcquisition,
         open_wire: commands::adc::OpenWire,
@@ -483,7 +483,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     /// This doesn't account for time added by SOAKON (see Config A). It should still work if SOAKON is
     /// enabled, it just might not be as efficient since it will poll at the same frequency as when SOAKON
     /// is not enabled.
-    pub async fn adax_autoconvert(
+    pub(crate) async fn adax_autoconvert(
         &mut self,
         open_wire: commands::adc::OpenWireAux,
         pull: commands::adc::Pull,
@@ -500,7 +500,7 @@ impl<SPI: SpiDevice, const N: usize> Manager<SPI, N> {
     }
 
     /// Starts an AUX2 conversion (ADAX2) and waits for it to finish.
-    pub async fn adax2_autoconvert(
+    pub(crate) async fn adax2_autoconvert(
         &mut self,
         channel: commands::adc::Aux2InputSelection,
         timeout_ms: u64,
