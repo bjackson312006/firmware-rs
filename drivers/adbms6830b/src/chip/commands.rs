@@ -8,6 +8,7 @@ use bitfield_struct::bitfield;
 /// 
 /// See Table 50 on page 57 of the datasheet.
 #[bitfield(u16, defmt = cfg(feature = "defmt"))]
+#[derive(PartialEq, Eq)]
 pub struct CommandCode {
     /// CC[10:0]
     #[bits(11)]
@@ -18,7 +19,7 @@ pub struct CommandCode {
 }
 
 /// ADBMS6830B Command. See Table 50 on page 57 of the datasheet.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Command {
     /// Whether or not the command counter increments for the command. Corresponds to the INC value from Table 50 in the datasheet.
@@ -29,7 +30,7 @@ pub struct Command {
 
 /// A Command Frame (the command code plus its command PEC). This is four bytes total.
 /// (technically six bytes because `Command` has the inc metadata but to_bytes() serializes it into four bytes)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CommandFrame {
     command: Command,

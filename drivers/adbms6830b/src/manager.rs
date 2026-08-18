@@ -9,6 +9,10 @@ use crate::chip::commands::{self, Command, CommandFrame};
 use crate::chip::registers::{ReadableGroup, WritableGroup};
 use crate::docs;
 use crate::line::{conversion_times, ChipResponse, Error, Line};
+use crate::chip::registers::{
+    config_a::ConfigA,
+    config_b::ConfigB,
+};
 
 /// Highest value `CCNT[5:0]` reaches before rolling over.
 const CCNT_MAX: u8 = 63;
@@ -23,19 +27,37 @@ pub enum LineId {
     B,
 }
 
-/// Command counter state for one chip.
+/// Helper struct for `ChipState` that stores command count data.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ChipState {
+pub struct CommandCount {
     /// Expected command count.
     expected: u8,
     /// Reported command count (reported via reads).
     reported: u8,
     /// Times the command count has been manually re-synced. 
-    resync_count: u8,
+    resync_count: usize,
 }
+impl CommandCount {
+    /// New CommandCount with initial state.
+    pub(crate) const fn new() -> Self {
+        CommandCount {
+            expected: 0,
+            reported: 0,
+            resync_count: 0,
+        }
+    }
 
-impl ChipState {
+    /// Re-syncs the command counter.
+    /// 
+    /// This is different to `reset()`.
+    pub(crate) const fn resync(&mut self) {
+        if !self.in_sync() {
+            self.expected = self.reported;
+            self.resync_count += 1;
+        }
+    }
+
     /// What this chip's counter "should" be. This is tracked from the commands sent to it.
     pub const fn expected(&self) -> u8 {
         self.expected
@@ -47,7 +69,7 @@ impl ChipState {
     }
 
     /// Times this chip's command count has been manually re-synced.
-    pub const fn resync_count(&self) -> u8 {
+    pub const fn resync_count(&self) -> usize {
         self.resync_count
     }
 
@@ -59,8 +81,87 @@ impl ChipState {
     }
 }
 
+/// Command counter state for one chip.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ChipState {
+    /// Command Count metadata.
+    pub(crate) command_count: CommandCount,
+    /// Number of times the command count has been reset.
+    /// 
+    /// This is different to the `resync_count` metadata inside
+    /// the CommandCount struct itself. This counts how many times the entire
+    /// `CommandCount` struct has been reset for this chip due to a sleep.
+    pub(crate) command_count_resets: usize,
+    /// Last time we heard from this chip with a good PEC.
+    /// 
+    /// `None` means we haven't heard from this chip yet.
+    pub(crate) last_contacted: Option<embassy_time::Instant>,
+    /// Number of times this chip has read in a successful PEC. 
+    pub(crate) pec_success_count: usize,
+    /// Number of times this chip has read in a failed PEC.
+    pub(crate) pec_failed_count: usize,
+
+    /// Cached Config A register state. Will be `None` on init until this register is written to.
+    /// This is used to automatically reconfigure the registers if a sleep is detected.
+    pub(crate) config_a: Option<ConfigA>,
+    /// Cached Config A register state. Will be `None` on init until this register is written to.
+    /// This is used to automatically reconfigure the registers if a sleep is detected.
+    pub(crate) config_b: Option<ConfigB>,
+}
+
+impl ChipState {
+    /// Command Count metadata.
+    pub const fn command_count(&self) -> CommandCount {
+        self.command_count
+    }
+
+    /// Resets an already-initialized command counter. This is meant to be called
+    /// after a sleep state is detected.
+    /// 
+    /// ### Parameters
+    /// - `count`: The `count` you want to initialize both `expected` and `reported` to. This should
+    /// be read directly from the chip. This way, `expected` and `reported` are starting from the exact same
+    /// known state. In other words, this basically lets you start up the command counting with a blank slate.
+    pub(crate) const fn reset_command_count(&mut self, count: u8) {
+        self.command_count = CommandCount {
+            expected: count,
+            reported: count,
+            resync_count: 0
+        };
+        self.command_count_resets += 1;
+    }
+
+    /// Last time we heard from this chip with a good PEC.
+    /// 
+    /// `None` means we haven't heard from this chip yet.
+    pub const fn last_contacted(&self) -> Option<embassy_time::Instant> {
+        self.last_contacted
+    }
+
+    /// Returns the number of times the command counter for this chip has
+    /// been reset due to a sleep.
+    /// 
+    /// Because this only increments when a sleep is detected, this field
+    /// can be interpereted as a "number of times a sleep has been detected" for
+    /// this chip as well.
+    pub const fn command_count_resets(&self) -> usize {
+        self.command_count_resets
+    }
+
+    /// Number of times this chip has read in a successful PEC. 
+    pub const fn pec_success_count(&self) -> usize {
+        self.pec_success_count
+    }
+
+    /// Number of times this chip has read in a failed PEC.
+    pub const fn pec_failed_count(&self) -> usize {
+        self.pec_failed_count
+    }
+}
+
 /// Per-chip results of a read.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug)]
 pub struct Responses<G, E, const N: usize> {
     chips: [Option<ChipResponse<G>>; N],
     errors: [Option<Error<E>>; 2],
@@ -143,7 +244,7 @@ pub struct Api<SPI, const N: usize> {
     line_b: Line<SPI, N>,
     on_line_a: OnLineA,
     /// State metadata for each chip
-    chips: [ChipState; N],
+    pub(crate) chips: [ChipState; N],
 }
 
 #[cfg(feature = "defmt")]
@@ -166,21 +267,25 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             line_b,
             on_line_a: OnLineA(N),
             chips: [ChipState {
-                expected: 0,
-                reported: 0,
-                resync_count: 0,
+                command_count: CommandCount::new(),
+                command_count_resets: 0,
+                last_contacted: None,
+                pec_success_count: 0,
+                pec_failed_count: 0,
+                config_a: None,
+                config_b: None,
             }; N],
         }
     }
 
     /// Releases both lines' SPI devices.
-    pub fn release(self) -> (SPI, SPI) {
+    pub(crate) fn release(self) -> (SPI, SPI) {
         (self.line_a.release(), self.line_b.release())
     }
 
     /// Per-chip metadata.
-    pub const fn chips(&self) -> &[ChipState; N] {
-        &self.chips
+    pub(crate) const fn chips(&mut self) -> &[ChipState; N] {
+        &mut self.chips
     }
 
     /// CRATE PRIVATE! Adopts every chip's reported counter as its expected one.
@@ -189,8 +294,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// u_TODO: it might be a good idea to have `Api` own a thread that detects the SLEEP bit from the status register and calls this automatically. I guess probably just wherever the isospi recovery thread works
     pub(crate) fn resync_command_counters(&mut self) {
         for chip in &mut self.chips {
-            chip.expected = chip.reported;
-            chip.resync_count += 1;
+            chip.command_count().resync()
         }
     }
 
@@ -257,7 +361,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         };
 
         for chip in chips {
-            let expected = &mut self.chips[chip].expected;
+            let expected = &mut self.chips[chip].command_count.expected;
             // 0 is reserved for resets, so the counter rolls over to 1. See page 53 of the datasheet.
             *expected = match () {
                 _ if frame.resets_counter() => 0,
@@ -301,7 +405,11 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
 
             // A failed PEC corrupts the counter bits too, so only believe a counter that checked out.
             if response.pec().is_success() {
-                self.chips[chip].reported = response.command_counter();
+                self.chips[chip].command_count.reported = response.command_counter();
+                self.chips[chip].last_contacted = Some(embassy_time::Instant::now());
+                self.chips[chip].pec_success_count += 1;
+            } else {
+                self.chips[chip].pec_failed_count += 1;
             }
             *slot = Some(*response);
         }
@@ -326,7 +434,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             Ok(())
         };
 
-        let line_b = if count_b > 0 {
+                let line_b = if count_b > 0 {
             // Line B reaches its chips in reverse logical order.
             let reversed: [G; N] = core::array::from_fn(|i| groups[N - 1 - i]);
             self.note(LineId::B, G::WRITE_COMMAND);
@@ -334,6 +442,18 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         } else {
             Ok(())
         };
+
+        // Cache the config groups so a chip that sleeps (and resets its registers to defaults)
+        // can be restored to what the application last asked for.
+        if G::WRITE_COMMAND == ConfigA::WRITE_COMMAND {
+            for (chip, group) in groups.iter().enumerate() {
+                self.chips[chip].config_a = Some(ConfigA::from_bytes(group.to_bytes()));
+            }
+        } else if G::WRITE_COMMAND == ConfigB::WRITE_COMMAND {
+            for (chip, group) in groups.iter().enumerate() {
+                self.chips[chip].config_b = Some(ConfigB::from_bytes(group.to_bytes()));
+            }
+        }
 
         line_a.and(line_b)
     }
