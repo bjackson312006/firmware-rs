@@ -1,5 +1,6 @@
 //! Service for ADBMS6830B
 
+use embassy_time::{Timer, Duration};
 use embedded_hal_async::spi::SpiDevice;
 use crate::{
     chip::{
@@ -23,6 +24,158 @@ use crate::{
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 
+/// How often the service should run, in ms.
+const SERVICE_FREQUENCY_MS: u64 = 300;
+
+/// The thing that sums PEC errors
+/// and then resets every once and a while.
+mod accumulator {
+    use embassy_time::{Duration, Instant};
+    use super::ChipState;
+
+    /// How often the accumulator should reset itself.
+    const SEGMENT_ISOSPI_ACCUM_PERIOD_MS: u64 = 4000;
+
+    /// Threshold for accumulation timer.
+    /// 
+    /// Set just above the PEC error sum noise level per cycle,
+    /// so random noise doesn’t start the accumulation window.
+    const SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH: usize = 5;
+
+    /// Break detect threshold.
+    /// 
+    /// PEC errors > this value in the accumulation window indicate a break.
+    const SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD: usize = 25;
+
+    enum State {
+        /// Nothing unusual is going on. Watching for a spike in PEC errors.
+        Idle,
+        /// A spike in PEC errors started up the window. Summing PEC errors until `until`.
+        Accumulating { until: Instant },
+        /// A break was reported and the split has been moved.
+        /// 
+        /// There's only one split point since we only have two isospi lines. So we can't
+        /// set up multiple breaks after the first one.
+        /// 
+        /// u_TODO: add in the verification stuff here for this state
+        Latched,
+    }
+
+    /// result of an `.update()` call. Basically just here to
+    /// instruct the caller if they need to do anything.
+    pub enum UpdateResult {
+        /// we are good. caller doesn't need to do anything
+        Okay,
+
+        /// uh oh! We have a break to process
+        BreakDetected {
+            /// Index of the chip at which the break should be set
+            break_chip_index: usize 
+        },
+    }
+
+    pub struct Accumulator<const N: usize> {
+        state: State,
+
+        /// Accumulator's PEC counts for each chip.
+        chips: [usize; N],
+
+        /// Each chip's `pec_failed_count` as of the last update.
+        /// 
+        /// This is used because what gets accumulated is the difference in errors
+        /// between updates.
+        last_seen: [usize; N],
+
+        /// Whether `last_seen` holds a real reading yet.
+        /// 
+        /// The service can start up long after the application has been reading, so the
+        /// first update only takes a baseline instead of counting all of history as one delta.
+        seeded: bool,
+    }
+    impl<const N: usize> Accumulator<N> {
+        /// Default initialization for the accumulator. Will be idle by default.
+        pub(crate) const fn new() -> Self {
+            Self {
+                state: State::Idle,
+                chips: [0; N],
+                last_seen: [0; N],
+                seeded: false,
+            }
+        }
+
+        /// PRIVATE! Helper that zeroes the PEC count for each chip.
+        fn reset_chips(&mut self) {
+            for chip in &mut self.chips {
+                *chip = 0;
+            }
+        }
+
+        /// PRIVATE! Accumulates each chip's PEC failures since the last update.
+        fn update_chips(&mut self, chips: &[ChipState; N]) {
+            for (chip, state) in chips.iter().enumerate() {
+                let count = state.pec_failed_count();
+                if self.seeded {
+                    self.chips[chip] += count - self.last_seen[chip];
+                }
+                self.last_seen[chip] = count;
+            }
+
+            self.seeded = true;
+        }
+
+        /// Updates the PEC error accumulator state, and detects if a break should be set.
+        /// 
+        /// This should be called in every iteration of the Service runner. This will return either `UpdateResult::Okay`, meaning that
+        /// the service runner doesn't need to do anything regarding a break right now, or `UpdateResult::BreakDetected`, after which the
+        /// service runner must handle the break accordingly.
+        pub(crate) fn update(&mut self, chips: &[ChipState; N]) -> UpdateResult {
+            self.update_chips(chips);
+
+            match self.state {
+                // case: accumulator is currently idling. So, we need to check if there are more PEC errors
+                // than normal, and if so, start up an accumulation session. If there aren't more PEC errors than normal, we can stay idling.
+                State::Idle => {
+                    if self.chips.iter().any(|c| *c > SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH) {
+                        self.state = State::Accumulating {
+                            until: Instant::now() + Duration::from_millis(SEGMENT_ISOSPI_ACCUM_PERIOD_MS),
+                        };
+                    } else {
+                        // we have not exceeded the theshold so nothing out of the ordinary. can reset
+                        self.reset_chips();
+                    }
+                }
+
+                // case: we are actively accumulating, and the Instant::now() is now past our original `until`.
+                // TLDR the accumulation period is up, so we need to check if what we accumulated constitutes a line break
+                State::Accumulating { until } if Instant::now() >= until => {
+                    self.state = State::Idle;
+
+                    // a break will mess up every chip past it. so, the first chip over the threshold
+                    // only means a break if all the chips after it are over it too.
+                    if let Some(idx) = self.chips.iter().position(|c| *c > SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD) {
+                        if self.chips[idx..].iter().all(|c| *c > SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD) {
+                            self.reset_chips();
+                            self.state = State::Latched;
+                            return UpdateResult::BreakDetected { break_chip_index: idx };
+                        }
+                    }
+
+                    self.reset_chips();
+                }
+
+                // case: we are still in the middle of filling the window so don't need to do anything rn
+                State::Accumulating { .. } => {}
+
+                // case: the one break we can route around has already been handled, so stop counting.
+                State::Latched => self.reset_chips(),
+            }
+
+            // if we get here we are okay
+            UpdateResult::Okay
+        }
+    }
+}
+
 pub struct Service<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> {
     api: Mutex<MUTEX, Api<SPI, N>>,
 }
@@ -31,6 +184,28 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     pub const fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>) -> Self {
         Self {
             api: Mutex::new(Api::new(line_a, line_b)),
+        }
+    }
+
+    /// Runs the service.
+    /// 
+    /// This function will never return and is intended to be ran in a
+    /// dedicated task.
+    pub async fn run(&self) -> ! {
+        use crate::service::accumulator::{Accumulator, UpdateResult};
+
+        // The runner is the only thing that uses this so it doesn't need to be part of `Service`.
+        let mut accumulator = Accumulator::<N>::new();
+
+        loop {
+            match accumulator.update(&self.chips().await) {
+                UpdateResult::BreakDetected { break_chip_index } => {
+                    self.handle_break_detected(break_chip_index).await
+                },
+                UpdateResult::Okay => {},
+            }
+
+            Timer::after(Duration::from_millis(SERVICE_FREQUENCY_MS)).await
         }
     }
 }
@@ -115,6 +290,14 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 /// 
 /// Internal helpers for the service.
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
+    /// PRIVATE! Logic for when a break has been detected.
+    /// 
+    /// This should be called when a break is detected. `break_chip_index` should be
+    /// passed in here.
+    async fn handle_break_detected(&self, break_chip_index: usize) {
+
+    }
+
     /// PRIVATE! Detects chips that have slept, re-baselines their command counters,
     /// restores the configuration they lost.
     async fn handle_sleep_detection(&self) -> Result<(), Error<SPI::Error>> {
