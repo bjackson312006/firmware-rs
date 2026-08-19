@@ -27,30 +27,44 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 /// How often the service should run, in ms.
 const SERVICE_FREQUENCY_MS: u64 = 300;
 
-/// The thing that sums PEC errors
-/// and then resets every once and a while.
+/// Tracks each chip's PEC failure rate and reports where a break has opened.
 mod accumulator {
     use embassy_time::{Duration, Instant};
     use super::ChipState;
 
-    /// How often the accumulator should reset itself.
-    const SEGMENT_ISOSPI_ACCUM_PERIOD_MS: u64 = 4000;
+    /// How long each evaluation window lasts.
+    const SEGMENT_ISOSPI_EVAL_PERIOD_MS: u64 = 4000;
 
-    /// Threshold for accumulation timer.
-    /// 
-    /// Set just above the PEC error sum noise level per cycle,
-    /// so random noise doesn’t start the accumulation window.
-    const SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH: usize = 5;
+    /// Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything.
+    ///
+    /// this is here to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
+    /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
+    /// indicates a break. So, if a window has less than this, we ignore that window.
+    const SEGMENT_ISOSPI_MIN_ATTEMPTS: usize = 16;
 
-    /// Break detect threshold.
-    /// 
-    /// PEC errors > this value in the accumulation window indicate a break.
-    const SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD: usize = 25;
+    /// Percentage of reads that must fail their PEC for a chip to look unreachable.
+    ///
+    /// A break will cause the affected chips' reads to fail essentially every
+    /// time. So, this value is meant to be quite high. 
+    /// This sits well above any plausible noise level but leaves margin for a link
+    /// that is failing intermittently rather than completely.
+    const SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT: usize = 75;
+
+    /// Fewest reads in a single update before that update's failure rate can open a window.
+    ///
+    /// This is kinda meant to take the place of `SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH` from the C code. It serves
+    /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
+    /// size rather than absolute error count.
+    const SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS: usize = 2;
+
 
     enum State {
-        /// Nothing unusual is going on. Watching for a spike in PEC errors.
+        /// There is no window open. Watching each update for a chip whose reads are failing.
+        /// Basically, everything is normal!
+        /// 
+        /// This is the default state at startup.
         Idle,
-        /// A spike in PEC errors started up the window. Summing PEC errors until `until`.
+        /// Summing PEC outcomes until `until`, at which point the window is evaluated.
         Accumulating { until: Instant },
         /// A break was reported and the split has been moved.
         /// 
@@ -74,22 +88,34 @@ mod accumulator {
         },
     }
 
+    // u_TODO - probably a good idea to expose the diagnostics being tracked by accumulator just for
+    // debugging purposes, maybe we could sent it over a CAN message or something.
+    // also, probably a good idea to track the number of times the accumulator chain of events gets blocked
+    // by `SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS` or `SEGMENT_ISOSPI_MIN_ATTEMPTS`, since that could help diagnose if our
+    // message rate is too slow for recovery to work properly
+
     pub struct Accumulator<const N: usize> {
         state: State,
 
-        /// Accumulator's PEC counts for each chip.
-        chips: [usize; N],
+        /// PEC failures counted for each chip during this window.
+        failed: [usize; N],
+
+        /// Total read attempts for this chip during this window. This is just a sum of pec_success + pec_failed.
+        attempts: [usize; N],
 
         /// Each chip's `pec_failed_count` as of the last update.
         /// 
         /// This is used because what gets accumulated is the difference in errors
         /// between updates.
-        last_seen: [usize; N],
+        last_failed: [usize; N],
 
-        /// Whether `last_seen` holds a real reading yet.
+        /// Each chip's total PEC outcomes as of the last update. Paired with `last_failed`.
+        last_attempts: [usize; N],
+
+        /// Whether `last_failed` and `last_attempts` hold a real reading yet.
         /// 
-        /// The service can start up long after the application has been reading, so the
-        /// first update only takes a baseline instead of counting all of history as one delta.
+        /// This is used to make sure the first reading is saved as a baseline rather than
+        /// trying to calculate a change from it.
         seeded: bool,
     }
     impl<const N: usize> Accumulator<N> {
@@ -97,30 +123,66 @@ mod accumulator {
         pub(crate) const fn new() -> Self {
             Self {
                 state: State::Idle,
-                chips: [0; N],
-                last_seen: [0; N],
+                failed: [0; N],
+                attempts: [0; N],
+                last_failed: [0; N],
+                last_attempts: [0; N],
                 seeded: false,
             }
         }
 
-        /// PRIVATE! Helper that zeroes the PEC count for each chip.
+        /// PRIVATE! Helper that zeroes this window's tallies for each chip.
         fn reset_chips(&mut self) {
-            for chip in &mut self.chips {
-                *chip = 0;
-            }
+            self.failed = [0; N];
+            self.attempts = [0; N];
         }
 
-        /// PRIVATE! Accumulates each chip's PEC failures since the last update.
+        /// PRIVATE! Adds each chip's PEC outcomes since the last update to this window.
         fn update_chips(&mut self, chips: &[ChipState; N]) {
             for (chip, state) in chips.iter().enumerate() {
-                let count = state.pec_failed_count();
+                let failed = state.pec_failed_count();
+                let attempts = failed + state.pec_success_count();
+
                 if self.seeded {
-                    self.chips[chip] += count - self.last_seen[chip];
+                    self.failed[chip] += failed - self.last_failed[chip];
+                    self.attempts[chip] += attempts - self.last_attempts[chip];
                 }
-                self.last_seen[chip] = count;
+
+                self.last_failed[chip] = failed;
+                self.last_attempts[chip] = attempts;
             }
 
             self.seeded = true;
+        }
+
+        /// PRIVATE! Whether this chip failed the ratio threshold over at least `min_attempts` reads.
+        /// 
+        /// Arming and the final verdict use the same failure rate and differ only in how much
+        /// evidence they ask for.
+        fn failure_rate_exceeded(&self, chip: usize, min_attempts: usize) -> bool {
+            self.attempts[chip] >= min_attempts
+                && (self.failed[chip] * 100)
+                    >= (self.attempts[chip] * SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT)
+        }
+
+        /// PRIVATE! Whether this chip's reads since the last update are bad enough to open a window.
+        fn is_chip_arming(&self, chip: usize) -> bool {
+            self.failure_rate_exceeded(chip, SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS)
+        }
+
+        /// PRIVATE! Whether this chip failed enough of this window's reads to pass our threshold for problematic.
+        fn is_chip_failed(&self, chip: usize) -> bool {
+            self.failure_rate_exceeded(chip, SEGMENT_ISOSPI_MIN_ATTEMPTS)
+        }
+
+        /// PRIVATE! Opens an accumulation window.
+        /// 
+        /// this purposefully keeps whatever is already tallied so the update that armed the
+        /// window counts towards it.
+        fn open_window(&mut self) {
+            self.state = State::Accumulating {
+                until: Instant::now() + Duration::from_millis(SEGMENT_ISOSPI_EVAL_PERIOD_MS),
+            };
         }
 
         /// Updates the PEC error accumulator state, and detects if a break should be set.
@@ -132,35 +194,35 @@ mod accumulator {
             self.update_chips(chips);
 
             match self.state {
-                // case: accumulator is currently idling. So, we need to check if there are more PEC errors
-                // than normal, and if so, start up an accumulation session. If there aren't more PEC errors than normal, we can stay idling.
+                // case: no window is open, so the tallies hold only this update's reads (they get
+                // cleared every update we stay here). A chip failing its reads right now is what
+                // opens a window, so the window lines up with the start of the problem.
                 State::Idle => {
-                    if self.chips.iter().any(|c| *c > SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH) {
-                        self.state = State::Accumulating {
-                            until: Instant::now() + Duration::from_millis(SEGMENT_ISOSPI_ACCUM_PERIOD_MS),
-                        };
+                    if (0..N).any(|chip| self.is_chip_arming(chip)) {
+                        self.open_window();
                     } else {
-                        // we have not exceeded the theshold so nothing out of the ordinary. can reset
                         self.reset_chips();
                     }
                 }
 
-                // case: we are actively accumulating, and the Instant::now() is now past our original `until`.
-                // TLDR the accumulation period is up, so we need to check if what we accumulated constitutes a line break
+                // case: the window is up, so see whether what it caught looks like a break.
                 State::Accumulating { until } if Instant::now() >= until => {
-                    self.state = State::Idle;
+                    // A break takes out every chip past it, so the first unreachable chip only
+                    // means a break if every chip after it is unreachable too.
+                    let first = (0..N).find(|&chip| self.is_chip_failed(chip));
 
-                    // a break will mess up every chip past it. so, the first chip over the threshold
-                    // only means a break if all the chips after it are over it too.
-                    if let Some(idx) = self.chips.iter().position(|c| *c > SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD) {
-                        if self.chips[idx..].iter().all(|c| *c > SEGMENT_ISOSPI_PEC_ERROR_THRESHOLD) {
+                    if let Some(idx) = first {
+                        if (idx..N).all(|chip| self.is_chip_failed(chip)) {
                             self.reset_chips();
                             self.state = State::Latched;
                             return UpdateResult::BreakDetected { break_chip_index: idx };
                         }
                     }
 
+                    // Whatever the window caught wasn't a break, so go back to watching for
+                    // a fresh spike rather than measuring straight through.
                     self.reset_chips();
+                    self.state = State::Idle;
                 }
 
                 // case: we are still in the middle of filling the window so don't need to do anything rn
@@ -198,11 +260,16 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut accumulator = Accumulator::<N>::new();
 
         loop {
-            match accumulator.update(&self.chips().await) {
-                UpdateResult::BreakDetected { break_chip_index } => {
-                    self.handle_break_detected(break_chip_index).await
-                },
-                UpdateResult::Okay => {},
+            {
+                let mut api = self.api.lock().await;
+
+                // this should run first so the sleep detection reads count towards the accumulator update break detection
+                let _ = self.handle_sleep_detection(&mut api).await;
+
+                let chips = *api.chips();
+                if let UpdateResult::BreakDetected { break_chip_index } = accumulator.update(&chips) {
+                    self.handle_break_detected(&mut api, break_chip_index).await;
+                }
             }
 
             Timer::after(Duration::from_millis(SERVICE_FREQUENCY_MS)).await
@@ -294,21 +361,19 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// 
     /// This should be called when a break is detected. `break_chip_index` should be
     /// passed in here.
-    async fn handle_break_detected(&self, break_chip_index: usize) {
+    async fn handle_break_detected(&self, api: &mut Api<SPI, N>, break_chip_index: usize) {
 
     }
 
     /// PRIVATE! Detects chips that have slept, re-baselines their command counters,
     /// restores the configuration they lost.
-    async fn handle_sleep_detection(&self) -> Result<(), Error<SPI::Error>> {
+    async fn handle_sleep_detection(&self, api: &mut Api<SPI, N>) -> Result<(), Error<SPI::Error>> {
         use crate::chip::registers:: {
             status::StatusC,
             clear::ClearFlags,
             clear::types::ClearAction,
             status::types::c::SleepModeDetection,
         };
-
-        let mut api = self.api.lock().await;
 
         // RDSTATC doesn't increment the command counter, so this doesn't perturb what we're measuring.
         let mut statuses = api.read::<StatusC>().await;
