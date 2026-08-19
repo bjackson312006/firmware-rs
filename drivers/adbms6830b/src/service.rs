@@ -24,11 +24,35 @@ use crate::{
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 
+/// Structs for the diagnostics collected and reported by the Service.
+pub mod diagnostics {
+    use super::accumulator;
+
+    pub use accumulator::State;
+
+    /// Diagnostics from the Service's PEC error accumulator.
+    pub struct AccumulatorDiagnostics<const N: usize> {
+        /// Current state of the accumulator window.
+        pub(crate) state: accumulator::State,
+        /// Total PEC failures counted for each chip during this window.
+        pub(crate) failed: [usize; N],
+        /// Total read attempts for this chip during this window.
+        /// 
+        /// This is just a sum of the number of failed PECs and number of successful PECs for this chip
+        /// during this window.
+        pub(crate) attempts: [usize; N],
+        /// Each chip's PEC failure rate over the current window as a percentage (0 - 100).
+        pub(crate) failure_pct: [u8; N],
+
+
+    }
+}
+
 /// How often the service should run, in ms.
 const SERVICE_FREQUENCY_MS: u64 = 300;
 
 /// Tracks each chip's PEC failure rate and reports where a break has opened.
-mod accumulator {
+pub(crate) mod accumulator {
     use embassy_time::{Duration, Instant};
     use super::ChipState;
 
@@ -48,17 +72,17 @@ mod accumulator {
     /// time. So, this value is meant to be quite high. 
     /// This sits well above any plausible noise level but leaves margin for a link
     /// that is failing intermittently rather than completely.
-    const SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT: usize = 75;
+    const SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT: u8 = 75;
 
     /// Fewest reads in a single update before that update's failure rate can open a window.
     ///
     /// This is kinda meant to take the place of `SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH` from the C code. It serves
     /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
     /// size rather than absolute error count.
-    const SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS: usize = 2;
+    const SEGMENT_ISOSPI_OPEN_WINDOW_MIN_ATTEMPTS: usize = 2;
 
 
-    enum State {
+    pub enum State {
         /// There is no window open. Watching each update for a chip whose reads are failing.
         /// Basically, everything is normal!
         /// 
@@ -155,24 +179,17 @@ mod accumulator {
             self.seeded = true;
         }
 
-        /// PRIVATE! Whether this chip failed the ratio threshold over at least `min_attempts` reads.
+        /// PRIVATE! This chip's PEC failure rate over the current window, as a percentage.
         /// 
-        /// Arming and the final verdict use the same failure rate and differ only in how much
-        /// evidence they ask for.
-        fn failure_rate_exceeded(&self, chip: usize, min_attempts: usize) -> bool {
-            self.attempts[chip] >= min_attempts
-                && (self.failed[chip] * 100)
-                    >= (self.attempts[chip] * SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT)
-        }
+        /// Note: This doesn't check `SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS` or `SEGMENT_ISOSPI_MIN_ATTEMPTS`. The caller
+        /// is supposed to do that themselves.
+        fn failure_pct(&self, chip: usize) -> u8 {
+            // if no reads have happened yet we technically have a failure pct of 0%
+            if self.attempts[chip] == 0 {
+                return 0;
+            }
 
-        /// PRIVATE! Whether this chip's reads since the last update are bad enough to open a window.
-        fn is_chip_arming(&self, chip: usize) -> bool {
-            self.failure_rate_exceeded(chip, SEGMENT_ISOSPI_ARM_MIN_ATTEMPTS)
-        }
-
-        /// PRIVATE! Whether this chip failed enough of this window's reads to pass our threshold for problematic.
-        fn is_chip_failed(&self, chip: usize) -> bool {
-            self.failure_rate_exceeded(chip, SEGMENT_ISOSPI_MIN_ATTEMPTS)
+            ((self.failed[chip] * 100) / self.attempts[chip]) as u8
         }
 
         /// PRIVATE! Opens an accumulation window.
@@ -185,20 +202,56 @@ mod accumulator {
             };
         }
 
+        /// PRIVATE! Helper for `update()`. Checks whether or not `chip`'s PEC data warrants opening a window
+        fn should_we_open_window_for_chip(&mut self, failure_pct: &[u8; N], chip: usize) -> bool {
+            // first check if we have crossed the minimum amount of PEC attempts to even consider opening a window
+            if self.attempts[chip] < SEGMENT_ISOSPI_OPEN_WINDOW_MIN_ATTEMPTS {
+                // u_TODO increment diagnostic for how many times we have not opened a window just due to the min attempts
+                return false;
+            }
+            // okay at this point we know we have enough PEC attempt data to actually do the check reliably. So:
+            // if this is true we should open a window (since we have exceeded the threshold for failing chips)
+            failure_pct[chip] >= SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT
+        }
+
+        /// PRIVATE! Helper for `update()`. Checks whether or not `chip`'s PEC data passes our failure criteria
+        fn is_chip_failed(&mut self, failure_pct: &[u8; N], chip: usize) -> bool {
+            // first check if we have crossed the minimum amount of PEC attempts to even consider the chip as failed
+            // if this is too low we don't have enough PEC data to reliably conclude that a chip has failed
+            if self.attempts[chip] < SEGMENT_ISOSPI_MIN_ATTEMPTS {
+                // u_TODO increment diagnostic for how many times we have not opened a window just due to the min attempts
+                return false;
+            }
+            // okay at this point we know we have enough PEC attempt data to actually do the check reliably. So:
+            // if this is true we should flag this chip as failed (since we have exceeded the threshold for failing chips)
+            failure_pct[chip] >= SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT
+        }
+
         /// Updates the PEC error accumulator state, and detects if a break should be set.
         /// 
         /// This should be called in every iteration of the Service runner. This will return either `UpdateResult::Okay`, meaning that
         /// the service runner doesn't need to do anything regarding a break right now, or `UpdateResult::BreakDetected`, after which the
         /// service runner must handle the break accordingly.
         pub(crate) fn update(&mut self, chips: &[ChipState; N]) -> UpdateResult {
+            // update the accumulator's tracking of all the chip metadata!
+            // need to do this at the beginning of update always
             self.update_chips(chips);
+
+            // calculate failure_pct for all chips
+            // this is used both for diagnostics and also how to progress
+            // accumulator state
+            let mut failure_pct: [u8; N] = [0; N];
+            for chip in 0..N {
+                failure_pct[chip] = self.failure_pct(chip)
+            }
+
 
             match self.state {
                 // case: no window is open, so the tallies hold only this update's reads (they get
                 // cleared every update we stay here). A chip failing its reads right now is what
                 // opens a window, so the window lines up with the start of the problem.
                 State::Idle => {
-                    if (0..N).any(|chip| self.is_chip_arming(chip)) {
+                    if (0..N).any(|chip| { self.should_we_open_window_for_chip(&failure_pct, chip) }) {
                         self.open_window();
                     } else {
                         self.reset_chips();
@@ -207,12 +260,15 @@ mod accumulator {
 
                 // case: the window is up, so see whether what it caught looks like a break.
                 State::Accumulating { until } if Instant::now() >= until => {
+                    // find the first chip that exceeds our failure criteria
                     // A break takes out every chip past it, so the first unreachable chip only
                     // means a break if every chip after it is unreachable too.
-                    let first = (0..N).find(|&chip| self.is_chip_failed(chip));
+                    let first = (0..N).find(|&chip| { self.is_chip_failed(&failure_pct, chip) });
 
                     if let Some(idx) = first {
-                        if (idx..N).all(|chip| self.is_chip_failed(chip)) {
+                        // okay we found the `first` failing chip, so now we have to check if all the ones after `first`
+                        // are also failing. if they are, this is a break
+                        if (idx+1..N).all(|chip| self.is_chip_failed(&failure_pct, chip)) {
                             self.reset_chips();
                             self.state = State::Latched;
                             return UpdateResult::BreakDetected { break_chip_index: idx };
@@ -239,7 +295,7 @@ mod accumulator {
 }
 
 pub struct Service<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> {
-    api: Mutex<MUTEX, Api<SPI, N>>,
+    api: embassy_sync::mutex::Mutex<MUTEX, Api<SPI, N>>,
 }
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// Creates a new service.
