@@ -294,8 +294,10 @@ pub mod diagnostics {
         pub(crate) timing_diagnostics: TimingDiagnostics,
         /// Chip state diagnostics.
         pub(crate) chip_state_diagnostics: ChipStateDiagnostics<N>,
-        /// Number of times sleep detection has failed due to a SPI communication error.
+        /// Number of times sleep detection has failed due to a SPI::Error.
         pub(crate) sleep_detection_spi_error_count: usize,
+        /// Number of times break detection has failed due to a SPI::Error.
+        pub(crate) break_detection_spi_error_count: usize,
         /// Number of times the service has ran so far. This increments on every loop the service makes.
         pub(crate) cycles_count: usize,
         /// The current split of chips between the isoSPI lines.
@@ -311,8 +313,10 @@ pub mod diagnostics {
         pub const fn timing(&self) -> TimingDiagnostics { self.timing_diagnostics }
         /// Chip state diagnostics.
         pub const fn chip_state_diagnostics(&self) -> ChipStateDiagnostics<N> { self.chip_state_diagnostics }
-        /// Number of times sleep detection has failed due to a SPI communication error.
+        /// Number of times sleep detection has failed due to a SPI::Error.
         pub const fn sleep_detection_spi_error_count(&self) -> usize { self.sleep_detection_spi_error_count }
+        /// Number of times break detection has failed due to a SPI::Error.
+        pub const fn break_detection_spi_error_count(&self) -> usize { self.break_detection_spi_error_count }
         /// Number of times the service has ran so far. This increments on every loop the service makes.
         pub const fn cycles_count(&self) -> usize { self.cycles_count }
         /// The current split of chips between the isoSPI lines.
@@ -708,6 +712,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
         let mut sleep_detection_spi_error_count: usize = 0;
         let mut cycles_count: usize = 0;
+        let mut break_detection_spi_error_count: usize = 0;
 
         // stuff for calculating how often the service runs actually
         let mut previous_loop_timestamp: Option<Instant> = None; // timestamp the service loop last ran
@@ -750,7 +755,17 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                 let (update_result, accumulator_diagnostics) = accumulator.update(&chips);
                 match update_result {
                     UpdateResult::BreakDetected { break_chip_index } => {
-                        self.handle_break_detected(&mut api, break_chip_index).await;
+                        match self.handle_break_detected(&mut api, break_chip_index).await {
+                            Ok(()) => {},
+                            Err(err) => {
+                                break_detection_spi_error_count += 1;
+                                #[cfg(feature = "defmt")]
+                                // we need to use `Debug2Format` because `Error<SPI::Error>` only implements `Format` when the
+                                // SPI error type does, and we can't gaurauntee that the SPI error type will. `Debug` is guaranteed tho
+                                // since `embedded_hal::spi::Error` requires it.
+                                defmt::error!("ADBMS6830B: Service: `handle_break_detection()` failed with error: {}", defmt::Debug2Format(&err));
+                            }
+                        };
                     },
                     UpdateResult::Okay => {}
                 }
@@ -779,6 +794,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                         },
                         split: api.split(),
                         sleep_detection_spi_error_count,
+                        break_detection_spi_error_count,
                         cycles_count,
                      })
                 ));
@@ -814,19 +830,19 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 /// this provides a nice grouping of all the places the mutex is locked.
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// Reads a register group from every chip.
-    pub(crate) async fn read<G: ReadableGroup>(&self) -> Responses<G, SPI::Error, N> {
+    pub async fn read<G: ReadableGroup>(&self) -> Responses<G, SPI::Error, N> {
         let mut api = self.api.lock().await;
         api.read().await
     }
 
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
-    pub(crate) async fn write<G: WritableGroup>(&self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
+    pub async fn write<G: WritableGroup>(&self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.write(groups).await
     }
 
     /// Sends a command to every chip on both lines.
-    pub(crate) async fn command(&self, command: commands::Command) -> Result<(), Error<SPI::Error>> {
+    pub async fn command(&self, command: commands::Command) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.command(command).await
     }
@@ -857,13 +873,13 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// This doesn't account for time added by SOAKON (see Config A). It should still work if SOAKON is
     /// enabled, it just might not be as efficient since it will poll at the same frequency as when SOAKON
     /// is not enabled.
-    pub(crate) async fn adax_autoconvert(&self, open_wire: commands::adc::OpenWireAux, pull: commands::adc::Pull, channel: commands::adc::Aux1InputSelection, timeout_ms: u64, ) -> Result<(), Error<SPI::Error>> {
+    pub async fn adax_autoconvert(&self, open_wire: commands::adc::OpenWireAux, pull: commands::adc::Pull, channel: commands::adc::Aux1InputSelection, timeout_ms: u64, ) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.adax_autoconvert(open_wire, pull, channel, timeout_ms).await
     }
 
     /// Starts an AUX2 conversion (ADAX2) and waits for it to finish.
-    pub(crate) async fn adax2_autoconvert(&self, channel: commands::adc::Aux2InputSelection, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
+    pub async fn adax2_autoconvert(&self, channel: commands::adc::Aux2InputSelection, timeout_ms: u64) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.adax2_autoconvert(channel, timeout_ms).await
     }
@@ -884,21 +900,25 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// 
     /// This should be called when a break is detected. `break_chip_index` should be
     /// passed in here.
-    async fn handle_break_detected(&self, api: &mut Api<SPI, N>, break_chip_index: usize) {
+    async fn handle_break_detected(&self, api: &mut Api<SPI, N>, break_chip_index: usize) -> Result<(), Error<SPI::Error>> {
         match api.split_at(OnLineA(break_chip_index)).await {
             Ok(()) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "ADBMS6830B: Service: isoSPI break at chip {}. Chips {}..{} moved to line B.",
-                    break_chip_index, break_chip_index, N
-                );
-            }
-            Err(_err) => {
-                #[cfg(feature = "defmt")]
-                defmt::error!(
-                    "ADBMS6830B: Service: failed to split the chain at chip {}: {}",
-                    break_chip_index, defmt::Debug2Format(&_err)
-                );
+                #[cfg(feature = "defmt")] {
+                    defmt::info!(
+                        "ADBMS6830B: Service: isoSPI break at chip {}. Chips {}..{} moved to line B.",
+                        break_chip_index, break_chip_index, N
+                    );
+                }
+                Ok(())
+            },
+            Err(err) => {
+                #[cfg(feature = "defmt")] {
+                    defmt::error!(
+                        "ADBMS6830B: Service: failed to split the chain at chip {}: {}",
+                        break_chip_index, defmt::Debug2Format(&_err)
+                    );
+                }
+                Err(err)
             }
         }
     }
@@ -927,7 +947,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut clears = [ClearFlags::new(); N];
 
         // Adopt what every reachable chip just reported. Chips that actually slept get a full
-        // reset below instead, which supersedes this.
+        // reset below instead, which supersedes this!!
         api.resync_command_counts(&statuses);
 
         for (chip, response) in statuses.iter().enumerate() {
