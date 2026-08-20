@@ -1,25 +1,15 @@
 //! Service for ADBMS6830B
 
-use embassy_time::{Timer, Duration};
+use embassy_time::{Timer, Duration, Instant};
 use embedded_hal_async::spi::SpiDevice;
 use crate::{
     chip::{
-        registers::ReadableGroup,
-        registers::WritableGroup,
-        registers::config_a::ConfigA,
-        registers::config_b::ConfigB,
-        commands,
-    },
-    manager::{
-        Api,
-        Responses,
-        ChipState,
-    },
-    line::{
-        Line,
-        Error,
-        conversion_times
-    }
+        commands, registers::{ReadableGroup, WritableGroup, config_a::ConfigA, config_b::ConfigB},
+    }, line::{
+        Error, Line, conversion_times
+    }, manager::{
+        Api, ChipState, Responses,
+    }, service::diagnostics::TimingDiagnostics
 };
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
@@ -28,6 +18,10 @@ use core::cell::Cell;
 /// Structs for the diagnostics collected and reported by the Service.
 pub mod diagnostics {
     use super::accumulator;
+    use super::SpiDevice;
+    use super::Error;
+    use super::Duration;
+    use super::Instant;
 
     pub use accumulator::State;
 
@@ -200,15 +194,93 @@ pub mod diagnostics {
         pub const fn min_attempts_to_open_window(&self) -> usize { self.min_attempts_to_open_window }
     }
 
+    /// Diagnostics for the frequency at which the Service is running.
+    #[derive(Copy, Clone)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub struct TimingDiagnostics {
+        /// The difference in time between the most recent Service cycle, and the Service cycle before that.
+        /// 
+        /// This should generally be around the configured `SERVICE_FREQUENCY_MS`, but will be slightly longer
+        /// due to the time spend awaiting (either during SPI transiactions or waiting for the mutex).
+        /// 
+        /// If only zero or one Service cycles have ran yet, this will be None.
+        pub(crate) period: Option<Duration>,
+        /// The maximum `period` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub(crate) max_period: Duration,
+        /// How long the "work" of the Service took during the most recent Service cycle.
+        /// "work" is defined as everything the Service actually does after getting the mutex (i.e., sleep detection, isoSPI break detection, etc)
+        pub(crate) work: Duration,
+        /// The maximum `work` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub(crate) max_work: Duration,
+        /// How long the Service waited to acquire the mutex during the most recent cycle.
+        pub(crate) lock_wait: Duration,
+        /// The maximum `lock_wait` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub(crate) max_lock_wait: Duration,
+        /// The configured service frequency. This represents how long the Service waits after a cycleto wake up an run again.
+        /// 
+        /// This is a const value! It literally is just an echo of `SERVICE_FREQUENCY_MS`. This
+        /// is reported as a diagnostic for convinience, so it can be compared with the actual period reported by this struct.
+        pub(crate) service_frequency: u64,
+    }
+    impl TimingDiagnostics {
+        /// The difference in time between the most recent Service cycle, and the Service cycle before that.
+        /// 
+        /// This should generally be around the configured `SERVICE_FREQUENCY_MS`, but will be slightly longer
+        /// due to the time spend awaiting (either during SPI transiactions or waiting for the mutex).
+        /// 
+        /// If only zero or one Service cycles have ran yet, this will be None.
+        pub const fn period(&self) -> Option<Duration> { self.period }
+        /// The maximum `period` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub const fn max_period(&self) -> Duration { self.max_period }
+        /// How long the "work" of the Service took during the most recent Service cycle.
+        /// "work" is defined as everything the Service actually does after getting the mutex (i.e., sleep detection, isoSPI break detection, etc)
+        pub const fn work(&self) -> Duration { self.work }
+        /// The maximum `work` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub const fn max_work(&self) -> Duration { self.max_work }
+        /// How long the Service waited to acquire the mutex during the most recent cycle.
+        pub const fn lock_wait(&self) -> Duration { self.lock_wait }
+        /// The maximum `lock_wait` the Service has observed while running.
+        /// 
+        /// This starts out as zero until the Service has ran a few times.
+        pub const fn max_lock_wait(&self) -> Duration { self.max_lock_wait }
+        /// The configured service frequency. This represents how long the Service waits after a cycleto wake up an run again.
+        /// 
+        /// This is a const value! It literally is just an echo of `SERVICE_FREQUENCY_MS`. This
+        /// is reported as a diagnostic for convinience, so it can be compared with the actual period reported by this struct.
+        pub const fn service_frequency(&self) -> u64 { self.service_frequency }
+    }
+
     /// Diagnostics for a Service.
     #[derive(Copy, Clone)]
     pub struct ServiceDiagnostics<const N: usize> {
         /// PEC error accumulator diagnostics.
         pub(crate) accumulator_diagnostics: AccumulatorDiagnostics<N>,
+        /// Diagnostics for the frequency at which the Service is running.
+        pub(crate) timing_diagnostics: TimingDiagnostics,
+        /// Number of times sleep detection has failed due to a SPI communication error.
+        pub(crate) sleep_detection_spi_error_count: usize,
+        /// Number of times the service has ran so far. This increments on every loop the service makes.
+        pub(crate) cycles_count: usize,
     }
     impl<const N: usize> ServiceDiagnostics<N> {
         /// Diagnostics from the Service's PEC error accumulator.
         pub const fn accumulator(&self) -> AccumulatorDiagnostics<N> { self.accumulator_diagnostics }
+        /// Diagnostics for the frequency at which the Service is running.
+        pub const fn timing(&self) -> TimingDiagnostics { self.timing_diagnostics }
+        /// Number of times sleep detection has failed due to a SPI communication error.
+        pub const fn sleep_detection_spi_error_count(&self) -> usize { self.sleep_detection_spi_error_count }
+        /// Number of times the service has ran so far. This increments on every loop the service makes.
+        pub const fn cycles_count(&self) -> usize { self.cycles_count }
     }
 }
 
@@ -547,12 +619,41 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         // The runner is the only thing that uses this so it doesn't need to be part of `Service`.
         let mut accumulator = Accumulator::<N>::new();
 
+        let mut sleep_detection_spi_error_count: usize = 0;
+        let mut cycles_count: usize = 0;
+
+        // stuff for calculating how often the service runs actually
+        let mut previous_loop_timestamp: Option<Instant> = None; // timestamp the service loop last ran
+        let mut max_period = Duration::MIN; // the highest period between two service loops we have observed so far
+        let mut max_lock_wait = Duration::MIN; // the highest wait time we have observed between a Service loop starting and us actually getting the mutex
+        let mut max_work = Duration::MIN; // the highest time we have observed the work of the service loop taking
+
         loop {
+            let loop_started_timestamp = Instant::now(); // timestamp at the start of loop
+            let period = previous_loop_timestamp.map(|prev| loop_started_timestamp.saturating_duration_since(prev));
+            previous_loop_timestamp = Some(loop_started_timestamp);
+            if let Some(period) = period {
+                max_period = max_period.max(period);
+            }
+
             {
                 let mut api = self.api.lock().await;
 
+                let locked_at_timestamp = Instant::now(); // timestamp at which we locked the mutex
+                let lock_wait = locked_at_timestamp.saturating_duration_since(loop_started_timestamp);
+                max_lock_wait = max_lock_wait.max(lock_wait);
+
+                // AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
+
                 // this should run first so the sleep detection reads count towards the accumulator update break detection
-                let _ = self.handle_sleep_detection(&mut api).await;
+                match self.handle_sleep_detection(&mut api).await {
+                    Ok(()) => {},
+                    Err(err) => {
+                        sleep_detection_spi_error_count += 1;
+                        #[cfg(feature = "defmt")]
+                        defmt::error!("ADBMS6830B: Service: `handle_sleep_detection()` failed with error: {}", err);
+                    }
+                }
 
                 let chips = *api.chips();
 
@@ -564,14 +665,25 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     UpdateResult::Okay => {}
                 }
 
+                // END AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
+
+                let work = Instant::now().saturating_duration_since(locked_at_timestamp);
+                max_work = max_work.max(work);
                 
                 // update service diagnostics
                 self.diagnostics.lock(|cell| cell.set(
                     Some(ServiceDiagnostics {
                         accumulator_diagnostics: accumulator_diagnostics,
+                        timing_diagnostics: TimingDiagnostics {
+                            period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: SERVICE_FREQUENCY_MS,
+                        },
+                        sleep_detection_spi_error_count,
+                        cycles_count,
                      })
-                ))
+                ));
             }
+
+            cycles_count += 1;
 
             Timer::after(Duration::from_millis(SERVICE_FREQUENCY_MS)).await
         }
@@ -707,8 +819,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
             if response.data().sleep() == SleepModeDetection::SleepModeDetected {
                 any_slept = true;
                 api.chips[chip].reset_command_count(response.command_counter());
-                // Waking into standby also sets both rail UV flags, so clear them alongside SLEEP
-                // or the application sees undervoltage faults that never happened.
+                // Waking into standby also sets both rail UV flags so need to clear them alongside SLEEP or else it will look like undervoltage happened
                 clears[chip] = clears[chip]
                     .with_cl_sleep(ClearAction::Clear)
                     .with_cl_vauv(ClearAction::Clear)
