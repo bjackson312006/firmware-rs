@@ -602,6 +602,11 @@ pub(crate) mod accumulator {
                 failure_pct[chip] = self.failure_pct(chip)
             }
 
+            // these are snapshotted for the diagnostics before the state handling below so they are consistent with failure_pct
+            // (the state handler resets these in some cases so if we were to snapshot them at the end they would not be correct)
+            let failed = self.failed;
+            let attempts = self.attempts;
+
             // actually do the update/state handling stuff
             let update_result = 'update_result: {
                 match self.state {
@@ -653,8 +658,8 @@ pub(crate) mod accumulator {
             // create the diagnostics
             let diagnostics = AccumulatorDiagnostics {
                 state: self.state,
-                failed: self.failed,
-                attempts: self.attempts,
+                failed,
+                attempts,
                 failure_pct: failure_pct,
                 failure_pct_threshold: self.config.segment_isospi_pec_failure_ratio_pct,
                 accumulator_window_period: self.config.segment_isospi_eval_period_ms,
@@ -733,7 +738,10 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     Err(err) => {
                         sleep_detection_spi_error_count += 1;
                         #[cfg(feature = "defmt")]
-                        defmt::error!("ADBMS6830B: Service: `handle_sleep_detection()` failed with error: {}", err);
+                        // we need to use `Debug2Format` because `Error<SPI::Error>` only implements `Format` when the
+                        // SPI error type does, and we can't gaurauntee that the SPI error type will. `Debug` is guaranteed tho
+                        // since `embedded_hal::spi::Error` requires it.
+                        defmt::error!("ADBMS6830B: Service: `handle_sleep_detection()` failed with error: {}", defmt::Debug2Format(&err));
                     }
                 }
 
@@ -751,6 +759,9 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
                 let work = Instant::now().saturating_duration_since(locked_at_timestamp);
                 max_work = max_work.max(work);
+
+                // this is counted before we update the diagnostics so the diagnostics include the cycle being reported!!
+                cycles_count += 1;
                 
                 // update service diagnostics
                 self.diagnostics.lock(|cell| cell.set(
@@ -772,8 +783,6 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                      })
                 ));
             }
-
-            cycles_count += 1;
 
             Timer::after(Duration::from_millis(self.config.service_frequency_ms)).await
         }

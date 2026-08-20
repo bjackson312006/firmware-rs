@@ -255,7 +255,7 @@ impl<SPI, const N: usize> defmt::Format for Api<SPI, N> {
             f,
             "Api {{ chips: {=usize}, on_line_a: {=usize} }}",
             N,
-            self.on_line_a
+            usize::from(self.on_line_a)
         )
     }
 }
