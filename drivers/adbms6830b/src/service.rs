@@ -8,8 +8,8 @@ use crate::{
     }, line::{
         Error, Line, conversion_times
     }, manager::{
-        Api, ChipState, Responses,
-    }, service::diagnostics::TimingDiagnostics
+        Api, ChipState, LineId, OnLineA, Responses,
+    }, service::diagnostics::{ChipStateDiagnostics, TimingDiagnostics}
 };
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
@@ -22,6 +22,9 @@ pub mod diagnostics {
     use super::Error;
     use super::Duration;
     use super::Instant;
+    use super::OnLineA;
+    use super::ChipState;
+    use super::LineId;
 
     pub use accumulator::State;
 
@@ -260,6 +263,28 @@ pub mod diagnostics {
         pub const fn service_frequency(&self) -> u64 { self.service_frequency }
     }
 
+    /// Snapshot of per-chip diagnostics at the time the Service ran. This can help provide insight into
+    /// the exact state of things at the instant the service ran.
+    /// 
+    /// This is generally just a snapshot of the `ChipState` properties for each chip, but with
+    /// a few omitted values that aren't really relavent as diagnostics (like the cached configs),
+    /// and a few extras added in due to the extra context Service provides.
+    /// 
+    /// For an instantaneous direct read of `ChipState`, `Service` provides the `.chips()` method.
+    #[derive(Copy, Clone)]
+    pub struct ChipStateDiagnostics<const N: usize> {
+        /// Chip state.
+        pub(crate) chip_state: [ChipState; N],
+        /// Which line each chip is currently on.
+        pub(crate) chip_line: [LineId; N],
+    }
+    impl<const N: usize> ChipStateDiagnostics<N> {
+        /// Chip state.
+        pub const fn chip_state(&self) -> [ChipState; N] { self.chip_state }
+        /// Which line each chip is currently on.
+        pub const fn chip_line(&self) -> [LineId; N] { self.chip_line }
+    }
+
     /// Diagnostics for a Service.
     #[derive(Copy, Clone)]
     pub struct ServiceDiagnostics<const N: usize> {
@@ -267,20 +292,34 @@ pub mod diagnostics {
         pub(crate) accumulator_diagnostics: AccumulatorDiagnostics<N>,
         /// Diagnostics for the frequency at which the Service is running.
         pub(crate) timing_diagnostics: TimingDiagnostics,
+        /// Chip state diagnostics.
+        pub(crate) chip_state_diagnostics: ChipStateDiagnostics<N>,
         /// Number of times sleep detection has failed due to a SPI communication error.
         pub(crate) sleep_detection_spi_error_count: usize,
         /// Number of times the service has ran so far. This increments on every loop the service makes.
         pub(crate) cycles_count: usize,
+        /// The current split of chips between the isoSPI lines.
+        /// 
+        /// This is reported here as the raw OnLineA value. However, the service also
+        /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
+        pub(crate) split: OnLineA,
     }
     impl<const N: usize> ServiceDiagnostics<N> {
         /// Diagnostics from the Service's PEC error accumulator.
         pub const fn accumulator(&self) -> AccumulatorDiagnostics<N> { self.accumulator_diagnostics }
         /// Diagnostics for the frequency at which the Service is running.
         pub const fn timing(&self) -> TimingDiagnostics { self.timing_diagnostics }
+        /// Chip state diagnostics.
+        pub const fn chip_state_diagnostics(&self) -> ChipStateDiagnostics<N> { self.chip_state_diagnostics }
         /// Number of times sleep detection has failed due to a SPI communication error.
         pub const fn sleep_detection_spi_error_count(&self) -> usize { self.sleep_detection_spi_error_count }
         /// Number of times the service has ran so far. This increments on every loop the service makes.
         pub const fn cycles_count(&self) -> usize { self.cycles_count }
+        /// The current split of chips between the isoSPI lines.
+        /// 
+        /// This is reported here as the raw OnLineA value. However, the service also
+        /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
+        pub const fn split(&self) -> OnLineA { self.split }
     }
 }
 
@@ -720,6 +759,14 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                         timing_diagnostics: TimingDiagnostics {
                             period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: self.config.service_frequency_ms,
                         },
+                        chip_state_diagnostics: ChipStateDiagnostics {
+                            // this calls `*api.chips()` again instead of just using the already-read `chips`
+                            // to make sure the diagnostics gets the absolute final ChipState at the end of the
+                            // Service cycle
+                            chip_state: *api.chips(),
+                            chip_line: core::array::from_fn(|i| api.line_of(i)),
+                        },
+                        split: api.split(),
                         sleep_detection_spi_error_count,
                         cycles_count,
                      })
@@ -813,7 +860,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     }
 
     /// Per-chip metadata.
-    pub(crate) async fn chips(&self) -> [ChipState; N] {
+    pub async fn chips(&self) -> [ChipState; N] {
         let mut api = self.api.lock().await;
         let copy: [ChipState; N] = *api.chips();
         copy
@@ -874,10 +921,10 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
         // Sleep resets every register to its default. so we need to put back what the application last asked for.
         if any_slept {
-            let config_a: [ConfigA; N] = core::array::from_fn(|i| api.chips[i].config_a.unwrap_or(ConfigA::new()));
+            let config_a: [ConfigA; N] = core::array::from_fn(|i| api.config_a[i].unwrap_or(ConfigA::new()));
             api.write(&config_a).await?;
 
-            let config_b: [ConfigB; N] = core::array::from_fn(|i| api.chips[i].config_b.unwrap_or(ConfigB::new()));
+            let config_b: [ConfigB; N] = core::array::from_fn(|i| api.config_b[i].unwrap_or(ConfigB::new()));
             api.write(&config_b).await?;
 
             // write the clears

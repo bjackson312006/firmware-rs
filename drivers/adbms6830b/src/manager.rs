@@ -101,13 +101,6 @@ pub struct ChipState {
     pub(crate) pec_success_count: usize,
     /// Number of times this chip has read in a failed PEC.
     pub(crate) pec_failed_count: usize,
-
-    /// Cached Config A register state. Will be `None` on init until this register is written to.
-    /// This is used to automatically reconfigure the registers if a sleep is detected.
-    pub(crate) config_a: Option<ConfigA>,
-    /// Cached Config A register state. Will be `None` on init until this register is written to.
-    /// This is used to automatically reconfigure the registers if a sleep is detected.
-    pub(crate) config_b: Option<ConfigB>,
 }
 
 impl ChipState {
@@ -245,6 +238,14 @@ pub struct Api<SPI, const N: usize> {
     on_line_a: OnLineA,
     /// State metadata for each chip
     pub(crate) chips: [ChipState; N],
+
+    /// Each chip's cached Config A register state. An entry is `None` until that register
+    /// is written to.
+    /// 
+    /// This is used to automatically reconfigure the registers if a sleep is detected.
+    pub(crate) config_a: [Option<ConfigA>; N],
+    /// Same thing as `config_a` but for Config B !!!!
+    pub(crate) config_b: [Option<ConfigB>; N],
 }
 
 #[cfg(feature = "defmt")]
@@ -272,9 +273,9 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
                 last_contacted: None,
                 pec_success_count: 0,
                 pec_failed_count: 0,
-                config_a: None,
-                config_b: None,
             }; N],
+            config_a: [None; N],
+            config_b: [None; N],
         }
     }
 
@@ -447,11 +448,11 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         // can be restored to what the application last asked for.
         if G::WRITE_COMMAND == ConfigA::WRITE_COMMAND {
             for (chip, group) in groups.iter().enumerate() {
-                self.chips[chip].config_a = Some(ConfigA::from_bytes(group.to_bytes()));
+                self.config_a[chip] = Some(ConfigA::from_bytes(group.to_bytes()));
             }
         } else if G::WRITE_COMMAND == ConfigB::WRITE_COMMAND {
             for (chip, group) in groups.iter().enumerate() {
-                self.chips[chip].config_b = Some(ConfigB::from_bytes(group.to_bytes()));
+                self.config_b[chip] = Some(ConfigB::from_bytes(group.to_bytes()));
             }
         }
 
