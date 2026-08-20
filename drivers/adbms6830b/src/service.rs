@@ -885,7 +885,22 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// This should be called when a break is detected. `break_chip_index` should be
     /// passed in here.
     async fn handle_break_detected(&self, api: &mut Api<SPI, N>, break_chip_index: usize) {
-
+        match api.split_at(OnLineA(break_chip_index)).await {
+            Ok(()) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "ADBMS6830B: Service: isoSPI break at chip {}. Chips {}..{} moved to line B.",
+                    break_chip_index, break_chip_index, N
+                );
+            }
+            Err(_err) => {
+                #[cfg(feature = "defmt")]
+                defmt::error!(
+                    "ADBMS6830B: Service: failed to split the chain at chip {}: {}",
+                    break_chip_index, defmt::Debug2Format(&_err)
+                );
+            }
+        }
     }
 
     /// PRIVATE! Detects chips that have slept, re-baselines their command counters,
@@ -911,6 +926,10 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut any_slept = false;
         let mut clears = [ClearFlags::new(); N];
 
+        // Adopt what every reachable chip just reported. Chips that actually slept get a full
+        // reset below instead, which supersedes this.
+        api.resync_command_counts(&statuses);
+
         for (chip, response) in statuses.iter().enumerate() {
             let Some(response) = response else { continue };
             if response.pec().is_failed() { continue; }
@@ -923,8 +942,6 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     .with_cl_sleep(ClearAction::Clear)
                     .with_cl_vauv(ClearAction::Clear)
                     .with_cl_vduv(ClearAction::Clear);
-            } else {
-                api.chips[chip].command_count.resync();
             }
         }
 

@@ -304,16 +304,36 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         self.on_line_a
     }
 
-    /// CRATE PRIVATE! Routes chips `0..on_line_a` to line A and the rest to line B.
+    /// CRATE PRIVATE! Sets chips `0..on_line_a` to Line A, and `on_line_a..N` to Line B.
     ///
-    /// This only changes routing. You have to assert `COMM_BK` on the chips on either side of the break first, or
-    /// commands will keep moving across it.
+    /// This only changes the tracked software state! Callers must set `COMM_BK` as appropriate or
+    /// commands will not adhere to the tracked software state.
+    ///
+    /// Note: It is up to the caller to call this function before setting COMM_BK on the hardware, or after. 
+    /// Which order to do those in depends on why you are splitting:
+    /// - If you are splitting a healthy chain (just to use both halves at once for whatever reason), you should assert `COMM_BK` first, since
+    ///   without it commands cross the COMM_BK boundary while you are in the middle of making the change.
+    /// - If you are trying to recover from a real break, you should call this function first before making the actual hardware `COMM_BK` asserts.
+    ///   This is because an actual physical break makes it impossible for both ends to be reached from a single line (so configuring `COMM_K` on both sides
+    ///   would not be possible). The physical break itself would already be keeping the halves apart in the meantime so you wouldnt need to worry about
+    ///   commands crossing the COMM_BK boundary while you are in the middle of making the change.
+    ///
+    /// Also: See the `split_at()` (it does the second case for you).
     pub(crate) fn set_split(&mut self, on_line_a: OnLineA) -> Result<(), Error<SPI::Error>> {
         if usize::from(on_line_a) > N {
             return Err(Error::TooManyDevices);
         }
         self.on_line_a = on_line_a;
         Ok(())
+    }
+
+    /// CRATE PRIVATE! Like `set_split()`, but doesn't check if the split is valid.
+    /// 
+    /// ### Safety
+    /// Callers must enforce that `on_line_a <= N` before calling this. This function does not
+    /// check for `on_line_a > N`, so if that is passed in, you will be initializing an invalid split.
+    pub(crate) unsafe fn set_split_unchecked(&mut self, on_line_a: OnLineA) {
+        let _ = self.set_split(on_line_a);
     }
 
     /// Which line a chip is currently reached from.
@@ -633,5 +653,96 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             timeout_ms,
         )
         .await
+    }
+}
+
+/// # isoSPI break recovery
+///
+/// Helpers for routing around a break in the daisy chain.
+impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
+    /// CRATE PRIVATE! Adopts each chip's reported command counter as its expected command counter, for every chip in
+    /// `statuses` whose PEC passed.
+    pub(crate) fn resync_command_counts<G: Copy>(
+        &mut self,
+        statuses: &Responses<G, SPI::Error, N>,
+    ) {
+        for chip in 0..N {
+            let Some(response) = statuses.chip(chip) else {
+                continue;
+            };
+
+            if response.pec().is_failed() {
+                continue;
+            }
+
+            self.chips[chip].command_count.resync();
+        }
+    }
+
+    /// Splits the chain at `chip`. Chips `0..chip` will be on Line A, and chips `chip..N` will be on Line B.
+    ///
+    /// This sets the `COMM_BK` bit for the two chips on either side of the new boundary point. See
+    /// the "COMMUNICATION BREAK" section on page 53 of the datasheet.
+    ///
+    /// Note: `OnLineA(0)` puts all chips on Line B and `OnLineA(N)` puts all chips on Line A, so for those
+    /// specific inputs, no boundary is set and no COMM_BK is set.
+    /// 
+    /// Other probably more important note: If this function returns an error, the split state (both in software and in hardware)
+    /// are not guaranteed to be valid. If the SPI transactions carrying the COMM_BK commands fail, it isn't
+    /// really possible for this function to tell if the COMM_BK commands were successfully recieved by the chips or not. So, the software state
+    /// will kind of be in limbo. As such, it is the caller's responsibility to have some kind of recovery routine for when this
+    /// function returns an error. Said recovery routine should probably not end until this function returns Ok(()), since only then is
+    /// the state guaranteed as valid.
+    pub(crate) async fn split_at(&mut self, chip: OnLineA) -> Result<(), Error<SPI::Error>> {
+        use crate::chip::registers::config_a::types::CommunicationBreak;
+        use crate::chip::registers::status::StatusC;
+
+        // general note: this function uses `self.set_split_unchecked()` instead of `self.set_split()` because
+        // if this function needs to fail prematurely anywhere, we need to reset the split to `original_split` to avoid
+        // misrepresenting an unconfirmed or half-baked state
+
+        // make sure `chip` is valid
+        if usize::from(chip) > N {
+            return Err(Error::TooManyDevices);
+        }
+
+        // saves the original software split state so we can restore it just in case an error
+        let original_split = self.split();
+        if usize::from(original_split) > N {
+            #[cfg(feature = "defmt")] {
+                defmt::error!("ADBMS6830B: Manager: In split_at(): `self.split()` returned an `original_split` that is larger than N, which is an invalid value. This likely means that the split state was updated via the unsafe `set_split_unchecked()` function somewhere in the program without valid bounds checking, violating the safety of that function.");
+            }
+            return Err(Error::TooManyDevices)
+        }
+
+        // gotta set the split before actually writing COMM_BK so self.write() works for the split
+        unsafe { 
+            // SAFETY: we have already checked that `chip > N` is false
+            self.set_split_unchecked(chip) 
+        };
+
+        // DO A READ-MODIFY-WRITE OF CONFIGA:
+
+        // for the "read" part of the read-modify-write, we are using the cached config_a we track in self
+        // technically it probably would be more fullproof to just read the config_a states directly from what they
+        // are on the chips right now, but that would use an additional SPI transaction that itself could be another point
+        // of failure, especially since we are attempting to recover rn
+        let mut configs: [ConfigA; N] = core::array::from_fn(|i| self.config_a[i].unwrap_or(ConfigA::new()));
+
+        let chip: usize = chip.into();
+
+        if chip > 0 && chip < N {
+            configs[chip] = configs[chip].with_comm_bk(CommunicationBreak::Enable);
+            configs[chip - 1] = configs[chip - 1].with_comm_bk(CommunicationBreak::Enable);
+        }
+
+        self.write(&configs).await?;
+
+        // chips after the break missed every command sent while it was open, so their
+        // counters tracked in software are ahead of what those chips actually have on their hardware. so we need to resync
+        let statuses = self.read::<StatusC>().await;
+        self.resync_command_counts(&statuses);
+
+        Ok(())
     }
 }
