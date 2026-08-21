@@ -352,6 +352,13 @@ pub mod config {
     /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
     /// size rather than absolute error count.
     pub const SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW: usize = 2;
+    /// How many times the Service will try to apply a split before giving up on recovery.
+    pub const SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS: usize = 5;
+    /// How many evaluation windows the Service will spend checking whether a split worked before
+    /// giving up on recovery.
+    ///
+    /// This is the equivalent of `ISOSPI_RECOVERY_VERIFICATION_READS` from the C code.
+    pub const SEGMENT_ISOSPI_MAX_VERIFICATION_ATTEMPTS: usize = 2;
 
     /// Configuration constants for a Service. Probably just use `ServiceConfig::default()`
     #[derive(Clone, Copy)]
@@ -379,6 +386,14 @@ pub mod config {
         /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
         /// size rather than absolute error count.
         pub segment_isospi_min_attempts_to_open_window: usize,
+        /// isoSPI recovery setting! How many times the Service will try to apply a split before
+        /// giving up on recovery.
+        pub segment_isospi_max_split_attempts: usize,
+        /// isoSPI recovery setting! How many evaluation windows the Service will spend checking
+        /// whether a split worked before giving up on recovery.
+        ///
+        /// This is the equivalent of `ISOSPI_RECOVERY_VERIFICATION_READS` from the C code.
+        pub segment_isospi_max_verification_attempts: usize,
     }
     impl Default for ServiceConfig {
         fn default() -> Self {
@@ -388,6 +403,8 @@ pub mod config {
                 segment_isospi_min_attempts_for_fail: SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL,
                 segment_isospi_pec_failure_ratio_pct: SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
                 segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
+                segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
+                segment_isospi_max_verification_attempts: SEGMENT_ISOSPI_MAX_VERIFICATION_ATTEMPTS,
             }
         }
     }
@@ -408,13 +425,36 @@ pub(crate) mod accumulator {
         Idle,
         /// Summing PEC outcomes until `until`, at which point the window is evaluated.
         Accumulating { until: Instant },
-        /// A break was reported and the split has been moved.
+        /// A break was found at chip `at`, and the Service is trying to apply the split for it.
         /// 
-        /// There's only one split point since we only have two isospi lines. So we can't
-        /// set up multiple breaks after the first one.
+        /// For context, when the accumulator discovers that a split needs to happen, it calls `Api::split_at()`. `Api::split_at()` can fail
+        /// due to SPI errors, and when that happens, we don't have a concrete split state (see the docs for that function). To recover from that,
+        /// we have to just keep calling `Api::split_at()` until it succeeds.
         /// 
-        /// u_TODO: add in the verification stuff here for this state
-        Latched,
+        /// `attempts` counts how many times we have tried calling it so far, and is
+        /// bounded by `segment_isospi_max_split_attempts`.
+        /// 
+        /// `at` is the index we are trying to split at.
+        Splitting { at: usize, attempts: usize },
+        /// The split for the break at chip `at` was applied. We are now measuring if it worked or not.
+        /// 
+        /// Recovery worked if none of the chips from `at` onwards are failing anymore. We continuously run windows
+        /// to try verifying, either until it succeeds or we exceed `segment_isospi_max_verification_attempts`.
+        /// 
+        /// `until` is the Instant this verification window is running until.
+        /// 
+        /// `attempts` is the number of windows we have tried so far.
+        Verifying { at: usize, until: Instant, attempts: usize },
+        /// The split at chip `at` was applied and verified. Recovery is done!!!
+        /// 
+        /// We only have two isoSPI lines so nothing further is detected from here. If after this point another break
+        /// occurs then we can't really do anything. It is kind of like a totem of undying but you only have one
+        Recovered { at: usize },
+        /// Recovery for the break at chip `at` gave up.
+        /// 
+        /// Either the split could not be applied, or it was applied but the chips past it never
+        /// started communicating again.
+        Failed { at: usize },
     }
 
     /// result of an `.update()` call. Basically just here to
@@ -424,6 +464,10 @@ pub(crate) mod accumulator {
         Okay,
 
         /// uh oh! We have a break to process
+        /// 
+        /// the caller is supposed to process this (i.e., actually apply the split for it and then report back through
+        /// `Accumulator::was_split_applied()`). This is returned on every update while the split is
+        /// still being attempted, which makes it so a failed attempt just gets retried on the next one.
         BreakDetected {
             /// Index of the chip at which the break should be set
             break_chip_index: usize 
@@ -586,6 +630,35 @@ pub(crate) mod accumulator {
             failure_pct[chip] >= self.config.segment_isospi_pec_failure_ratio_pct
         }
 
+        /// CRATE PRIVATE! Reports back whether the split asked for by `UpdateResult::BreakDetected` was applied.
+        /// 
+        /// On success the accumulator starts measuring whether the split actually fixed anything. On
+        /// failure it will ask for the split again on the next update, up to
+        /// `segment_isospi_max_split_attempts` times, because a failed `Api::split_at()` leaves the
+        /// split state unverified and retrying is the only way to get back to something trustworthy.
+        /// 
+        /// Calling this in any state other than `Splitting` does nothing.
+        pub(crate) fn was_split_applied(&mut self, applied: bool) {
+            let State::Splitting { at, attempts } = self.state else {
+                return;
+            };
+
+            if applied {
+                // Only what happens from here on says anything about whether the split worked.
+                self.reset_chips();
+                self.state = State::Verifying {
+                    at,
+                    until: Instant::now()
+                        + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
+                    attempts: 0,
+                };
+            } else if attempts + 1 >= self.config.segment_isospi_max_split_attempts {
+                self.state = State::Failed { at };
+            } else {
+                self.state = State::Splitting { at, attempts: attempts + 1 };
+            }
+        }
+
         /// Updates the PEC error accumulator state, and detects if a break should be set.
         /// 
         /// This should be called in every iteration of the Service runner. This will return either `UpdateResult::Okay`, meaning that
@@ -637,7 +710,7 @@ pub(crate) mod accumulator {
                             // are also failing. if they are, this is a break
                             if (idx+1..N).all(|chip| self.is_chip_failed(&failure_pct, chip)) {
                                 self.reset_chips();
-                                self.state = State::Latched;
+                                self.state = State::Splitting { at: idx, attempts: 0 };
                                 break 'update_result UpdateResult::BreakDetected { break_chip_index: idx };
                             }
                         }
@@ -651,8 +724,39 @@ pub(crate) mod accumulator {
                     // case: we are still in the middle of filling the window so don't need to do anything rn
                     State::Accumulating { .. } => {}
 
-                    // case: the one break we can route around has already been handled. so, stop counting.
-                    State::Latched => self.reset_chips(),
+                    // case: the split for this break hasnt been applied yet, so ask for it again. Anything measured
+                    // while the split is actively being applied is slop so dont accumulate it
+                    State::Splitting { at, .. } => {
+                        self.reset_chips();
+                        break 'update_result UpdateResult::BreakDetected { break_chip_index: at };
+                    }
+
+                    // case: the verification window is up! see whether the chips past the split
+                    // actually came back/can be communicated with now
+                    State::Verifying { at, until, attempts } if Instant::now() >= until => {
+                        if !(at..N).any(|chip| self.is_chip_failed(&failure_pct, chip)) {
+                            self.reset_chips();
+                            self.state = State::Recovered { at };
+                        } else if attempts + 1 >= self.config.segment_isospi_max_verification_attempts {
+                            self.reset_chips();
+                            self.state = State::Failed { at };
+                        } else {
+                            // Still failing but we haven't exceeded the max verification attempts, so measure another window.
+                            self.reset_chips();
+                            self.state = State::Verifying {
+                                at,
+                                until: Instant::now()
+                                    + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
+                                attempts: attempts + 1,
+                            };
+                        }
+                    }
+
+                    // case: still filling the verification window so nothing to do yet
+                    State::Verifying { .. } => {}
+
+                    // case: recovery is over, no matter if it was successful or failed. we can't do anything more from here
+                    State::Recovered { .. } | State::Failed { .. } => self.reset_chips(),
                 }
 
                 // if we get here we are okay
@@ -755,8 +859,8 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                 let (update_result, accumulator_diagnostics) = accumulator.update(&chips);
                 match update_result {
                     UpdateResult::BreakDetected { break_chip_index } => {
-                        match self.handle_break_detected(&mut api, break_chip_index).await {
-                            Ok(()) => {},
+                        let applied = match self.handle_break_detected(&mut api, break_chip_index).await {
+                            Ok(()) => true,
                             Err(err) => {
                                 break_detection_spi_error_count += 1;
                                 #[cfg(feature = "defmt")]
@@ -764,8 +868,11 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                                 // SPI error type does, and we can't gaurauntee that the SPI error type will. `Debug` is guaranteed tho
                                 // since `embedded_hal::spi::Error` requires it.
                                 defmt::error!("ADBMS6830B: Service: `handle_break_detection()` failed with error: {}", defmt::Debug2Format(&err));
+                                false
                             }
                         };
+                        // report back to the accumulator if the split was successful or not so it know if it needs to keep trying or can move on
+                        accumulator.was_split_applied(applied);
                     },
                     UpdateResult::Okay => {}
                 }
@@ -915,7 +1022,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                 #[cfg(feature = "defmt")] {
                     defmt::error!(
                         "ADBMS6830B: Service: failed to split the chain at chip {}: {}",
-                        break_chip_index, defmt::Debug2Format(&_err)
+                        break_chip_index, defmt::Debug2Format(&err)
                     );
                 }
                 Err(err)
