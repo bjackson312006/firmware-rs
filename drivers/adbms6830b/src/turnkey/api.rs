@@ -289,16 +289,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         &mut self.chips
     }
 
-    /// CRATE PRIVATE! Adopts every chip's reported counter as its expected one.
-    ///
-    /// This should be called after a wakeup or any time the chips may have slept (which happens automatically when the watchdog expires).
-    /// u_TODO: it might be a good idea to have `Api` own a thread that detects the SLEEP bit from the status register and calls this automatically. I guess probably just wherever the isospi recovery thread works
-    pub(crate) fn resync_command_counters(&mut self) {
-        for chip in &mut self.chips {
-            chip.command_count().resync()
-        }
-    }
-
     /// CRATE PRIVATE! How many chips are currently routed to line A.
     pub(crate) const fn split(&self) -> OnLineA {
         self.on_line_a

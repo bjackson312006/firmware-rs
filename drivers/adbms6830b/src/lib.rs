@@ -1,8 +1,10 @@
 //! Driver for the ADBMS6830B battery monitor.
 //!
-//! - `chip`: the register and command types the device speaks in.
-//! - `spi`: `Line`, the transport for one isoSPI line of daisy-chained devices.
-//! - `Api`: `Api`, two lines plus the routing and command counter state tracked across them.
+//! Summary of modules:
+//! - `chip`: kind of like a PAC? contains the types representing the register and command schemas from the datasheet.
+//! - `line`: the transport for one isoSPI line of daisy-chained devices. See the `Line` struct.
+//! - `turnkey`: higher-level module for the two-line isoSPI configuration. it manages two `Line` instances and handles line splitting and state tracking
+//! under the hood. See the `Service` struct.
 //!
 //! ### Defmt Support
 //! - The `defmt` feature flag will implement `defmt::Format` for every public type this driver exposes. This makes
@@ -15,7 +17,6 @@
 #![no_std]
 
 pub mod chip;
-pub mod manager;
+pub mod turnkey;
 pub mod line;
-pub mod service;
 mod docs;

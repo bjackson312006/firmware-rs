@@ -1,0 +1,305 @@
+//! Service helper. Structs for the diagnostics collected and reported by the Service.
+
+use super::accumulator;
+use super::api::{ 
+    LineId, ChipState, OnLineA
+};
+use embassy_time::{ Duration };
+
+/// Diagnostics from the Service's PEC error accumulator.
+#[derive(Copy, Clone)]
+pub struct AccumulatorDiagnostics<const N: usize> {
+    /// Current state of the accumulator window.
+    pub(crate) state: accumulator::State,
+    /// Total PEC failures counted for each chip during this window.
+    pub(crate) failed: [usize; N],
+    /// Total read attempts for this chip during this window.
+    /// 
+    /// This is just a sum of the number of failed PECs and number of successful PECs for this chip
+    /// during this window.
+    pub(crate) attempts: [usize; N],
+    /// Each chip's PEC failure rate over the current window as a percentage (0 - 100).
+    pub(crate) failure_pct: [u8; N],
+    /// Percentage of reads that must fail their PEC for a chip to be considered as "failing".
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_pec_failure_ratio_pct` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub(crate) failure_pct_threshold: u8,
+    /// How long the accumulator evaluation window lasts, in ms. Basically, after a window
+    /// opens, this is how long the window stays open to gather PEC data.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_eval_period_ms` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub(crate) accumulator_window_period: u64,
+    /// Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything.
+    /// 
+    /// This is used to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
+    /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
+    /// indicates a break. So, if a window has less than this, we ignore that window.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_min_attempts_for_fail` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub(crate) min_attempts_for_fail: usize,
+
+    /// This counts the number of times a chip has passed over opening a window because
+    /// it hadn't taken part in `SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW` reads since the last time the Service has run.
+    /// 
+    /// When this increments, it means the number of reads within a single Service cycle is below `SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW`. At
+    /// such a frequency, the Service does not ever open any accumulator windows, because there is not enough PEC error data
+    /// to reliably determine whether or not to open a window. Basically, the Service's isoSPI error detection does not run in that cycle.
+    /// 
+    /// This DOES NOT necessarily indicate an error. In periods of low traffic (where the application is not making any
+    /// reads, meaning this Service is effectively the only thing making reads at all), this counter will increment. This is expected,
+    /// as in periods where very few reads are being made, there is not enough data to base the PEC error accumulator off of. However, if this
+    /// counter is incrementing in normal-to-high traffic periods (i.e., the application is making a lot of reads), there is probably an issue
+    /// worth looking into.
+    pub(crate) below_min_attempts_to_open_window_count: usize,
+
+    /// This counts the number of times a chip could not be judged failed or not because it
+    /// hadn't taken part in `SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL` reads over the whole window.
+    /// 
+    /// This is only checked when a window expires (i.e., at most once per `SEGMENT_ISOSPI_EVAL_PERIOD_MS`) instead of
+    /// once per Service cycle. When it increments, a window did open (so something looked weird enough to open one up)
+    /// but ran its full length without gathering enough PEC data to reach a verdict. This basically makes it so the
+    /// window gets thrown away at the end.
+    /// 
+    /// Like `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`, this consistently incrementing
+    /// means that isoSPI break detection is basically not running since there are not enough reads being made to gather
+    /// the necessary PEC data to detect anything.
+    /// 
+    /// Also like `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`,
+    /// this doesn't necessarily indicate an error. However, if this counter is incrementing when you are in a normal-to-high traffic
+    /// period (or at least expect to be), then it is probably good to investigate. 
+    /// 
+    /// (Plus, remember that this can only increment when a window has been opened, meaning the Service is getting past the 
+    /// check reported by `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`. So if this is incrementing,
+    /// there is a chance the configured threshold for opening a window may not be optimized that well. Again, it is up to the application
+    /// to decide that though, or if they even care about this.)
+    pub(crate) below_min_attempts_for_fail_count: usize,
+
+    /// Fewest reads in a single update before that update's failure rate can open a window.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_min_attempts_to_open_window` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub(crate) min_attempts_to_open_window: usize,
+}
+impl<const N: usize> AccumulatorDiagnostics<N> {
+    /// Current state of the accumulator window.
+    pub const fn state(&self) -> accumulator::State { self.state }
+    /// Total PEC failures counted for each chip during this window.
+    pub const fn failed(&self) -> [usize; N] { self.failed }
+    /// Total read attempts for this chip during this window.
+    /// 
+    /// This is just a sum of the number of failed PECs and number of successful PECs for this chip
+    /// during this window.
+    pub const fn attempts(&self) -> [usize; N] { self.attempts }
+    /// Each chip's PEC failure rate over the current window as a percentage (0 - 100).
+    pub const fn failure_pct(&self) -> [u8; N] { self.failure_pct }
+    /// Percentage of reads that must fail their PEC for a chip to be considered as "failing".
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_pec_failure_ratio_pct` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub const fn failure_pct_threshold(&self) -> u8 { self.failure_pct_threshold }
+    /// How long the accumulator evaluation window lasts, in ms. Basically, after a window
+    /// opens, this is how long the window stays open to gather PEC data.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_eval_period_ms` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub const fn accumulator_window_period(&self) -> u64 { self.accumulator_window_period }
+    /// Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything.
+    /// 
+    /// This is used to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
+    /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
+    /// indicates a break. So, if a window has less than this, we ignore that window.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_min_attempts_for_fail` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub const fn min_attempts_for_fail(&self) -> usize { self.min_attempts_for_fail }
+
+    /// This counts the number of times a chip has passed over opening a window because
+    /// it hadn't taken part in `SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW` reads since the last time the Service has run.
+    /// 
+    /// When this increments, it means the number of reads within a single Service cycle is below `SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW`. At
+    /// such a frequency, the Service does not ever open any accumulator windows, because there is not enough PEC error data
+    /// to reliably determine whether or not to open a window. Basically, the Service's isoSPI error detection does not run in that cycle.
+    /// 
+    /// This DOES NOT necessarily indicate an error. In periods of low traffic (where the application is not making any
+    /// reads, meaning this Service is effectively the only thing making reads at all), this counter will increment. This is expected,
+    /// as in periods where very few reads are being made, there is not enough data to base the PEC error accumulator off of. However, if this
+    /// counter is incrementing in normal-to-high traffic periods (i.e., the application is making a lot of reads), there is probably an issue
+    /// worth looking into.
+    pub const fn below_min_attempts_to_open_window_count(&self) -> usize { self.below_min_attempts_to_open_window_count }
+
+    /// This counts the number of times a chip could not be judged failed or not because it
+    /// hadn't taken part in `SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL` reads over the whole window.
+    /// 
+    /// This is only checked when a window expires (i.e., at most once per `SEGMENT_ISOSPI_EVAL_PERIOD_MS`) instead of
+    /// once per Service cycle. When it increments, a window did open (so something looked weird enough to open one up)
+    /// but ran its full length without gathering enough PEC data to reach a verdict. This basically makes it so the
+    /// window gets thrown away at the end.
+    /// 
+    /// Like `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`, this consistently incrementing
+    /// means that isoSPI break detection is basically not running since there are not enough reads being made to gather
+    /// the necessary PEC data to detect anything.
+    /// 
+    /// Also like `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`,
+    /// this doesn't necessarily indicate an error. However, if this counter is incrementing when you are in a normal-to-high traffic
+    /// period (or at least expect to be), then it is probably good to investigate. 
+    /// 
+    /// (Plus, remember that this can only increment when a window has been opened, meaning the Service is getting past the 
+    /// check reported by `below_min_attempts_to_open_window_count`/`below_min_attempts_to_open_window_count()`. So if this is incrementing,
+    /// there is a chance the configured threshold for opening a window may not be optimized that well. Again, it is up to the application
+    /// to decide that though, or if they even care about this.)
+    pub const fn below_min_attempts_for_fail_count(&self) -> usize { self.below_min_attempts_for_fail_count }
+
+    /// Fewest reads in a single update before that update's failure rate can open a window.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_min_attempts_to_open_window` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub const fn min_attempts_to_open_window(&self) -> usize { self.min_attempts_to_open_window }
+}
+
+/// Diagnostics for the frequency at which the Service is running.
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TimingDiagnostics {
+    /// The difference in time between the most recent Service cycle, and the Service cycle before that.
+    /// 
+    /// This should generally be around the configured `SERVICE_FREQUENCY_MS`, but will be slightly longer
+    /// due to the time spend awaiting (either during SPI transiactions or waiting for the mutex).
+    /// 
+    /// If only zero or one Service cycles have ran yet, this will be None.
+    pub(crate) period: Option<Duration>,
+    /// The maximum `period` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub(crate) max_period: Duration,
+    /// How long the "work" of the Service took during the most recent Service cycle.
+    /// "work" is defined as everything the Service actually does after getting the mutex (i.e., sleep detection, isoSPI break detection, etc)
+    pub(crate) work: Duration,
+    /// The maximum `work` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub(crate) max_work: Duration,
+    /// How long the Service waited to acquire the mutex during the most recent cycle.
+    pub(crate) lock_wait: Duration,
+    /// The maximum `lock_wait` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub(crate) max_lock_wait: Duration,
+    /// The configured service frequency. This represents how long the Service waits after a cycleto wake up an run again.
+    /// 
+    /// This is a const value! It literally is just an echo of `service_frequency_ms` from the config. This
+    /// is reported as a diagnostic for convinience, so it can be compared with the actual period reported by this struct.
+    pub(crate) service_frequency: u64,
+}
+impl TimingDiagnostics {
+    /// The difference in time between the most recent Service cycle, and the Service cycle before that.
+    /// 
+    /// This should generally be around the configured `SERVICE_FREQUENCY_MS`, but will be slightly longer
+    /// due to the time spend awaiting (either during SPI transiactions or waiting for the mutex).
+    /// 
+    /// If only zero or one Service cycles have ran yet, this will be None.
+    pub const fn period(&self) -> Option<Duration> { self.period }
+    /// The maximum `period` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub const fn max_period(&self) -> Duration { self.max_period }
+    /// How long the "work" of the Service took during the most recent Service cycle.
+    /// "work" is defined as everything the Service actually does after getting the mutex (i.e., sleep detection, isoSPI break detection, etc)
+    pub const fn work(&self) -> Duration { self.work }
+    /// The maximum `work` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub const fn max_work(&self) -> Duration { self.max_work }
+    /// How long the Service waited to acquire the mutex during the most recent cycle.
+    pub const fn lock_wait(&self) -> Duration { self.lock_wait }
+    /// The maximum `lock_wait` the Service has observed while running.
+    /// 
+    /// This starts out as zero until the Service has ran a few times.
+    pub const fn max_lock_wait(&self) -> Duration { self.max_lock_wait }
+    /// The configured service frequency. This represents how long the Service waits after a cycleto wake up an run again.
+    /// 
+    /// This is a const value! It literally is just an echo of `service_frequency_ms` from the config. This
+    /// is reported as a diagnostic for convinience, so it can be compared with the actual period reported by this struct.
+    pub const fn service_frequency(&self) -> u64 { self.service_frequency }
+}
+
+/// Snapshot of per-chip diagnostics at the time the Service ran. This can help provide insight into
+/// the exact state of things at the instant the service ran.
+/// 
+/// This is generally just a snapshot of the `ChipState` properties for each chip, but with
+/// a few omitted values that aren't really relavent as diagnostics (like the cached configs),
+/// and a few extras added in due to the extra context Service provides.
+/// 
+/// For an instantaneous direct read of `ChipState`, `Service` provides the `.chips()` method.
+#[derive(Copy, Clone)]
+pub struct ChipStateDiagnostics<const N: usize> {
+    /// Chip state.
+    pub(crate) chip_state: [ChipState; N],
+    /// Which line each chip is currently on.
+    pub(crate) chip_line: [LineId; N],
+}
+impl<const N: usize> ChipStateDiagnostics<N> {
+    /// Chip state.
+    pub const fn chip_state(&self) -> [ChipState; N] { self.chip_state }
+    /// Which line each chip is currently on.
+    pub const fn chip_line(&self) -> [LineId; N] { self.chip_line }
+}
+
+/// Diagnostics for a Service.
+#[derive(Copy, Clone)]
+pub struct ServiceDiagnostics<const N: usize> {
+    /// PEC error accumulator diagnostics.
+    pub(crate) accumulator_diagnostics: AccumulatorDiagnostics<N>,
+    /// Diagnostics for the frequency at which the Service is running.
+    pub(crate) timing_diagnostics: TimingDiagnostics,
+    /// Chip state diagnostics.
+    pub(crate) chip_state_diagnostics: ChipStateDiagnostics<N>,
+    /// Number of times sleep detection has failed due to a SPI::Error.
+    pub(crate) sleep_detection_spi_error_count: usize,
+    /// Number of times break detection has failed due to a SPI::Error.
+    pub(crate) break_detection_spi_error_count: usize,
+    /// Number of times the service has ran so far. This increments on every loop the service makes.
+    pub(crate) cycles_count: usize,
+    /// The current split of chips between the isoSPI lines.
+    /// 
+    /// This is reported here as the raw OnLineA value. However, the service also
+    /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
+    pub(crate) split: OnLineA,
+}
+impl<const N: usize> ServiceDiagnostics<N> {
+    /// Diagnostics from the Service's PEC error accumulator.
+    pub const fn accumulator(&self) -> AccumulatorDiagnostics<N> { self.accumulator_diagnostics }
+    /// Diagnostics for the frequency at which the Service is running.
+    pub const fn timing(&self) -> TimingDiagnostics { self.timing_diagnostics }
+    /// Chip state diagnostics.
+    pub const fn chip_state_diagnostics(&self) -> ChipStateDiagnostics<N> { self.chip_state_diagnostics }
+    /// Number of times sleep detection has failed due to a SPI::Error.
+    pub const fn sleep_detection_spi_error_count(&self) -> usize { self.sleep_detection_spi_error_count }
+    /// Number of times break detection has failed due to a SPI::Error.
+    pub const fn break_detection_spi_error_count(&self) -> usize { self.break_detection_spi_error_count }
+    /// Number of times the service has ran so far. This increments on every loop the service makes.
+    pub const fn cycles_count(&self) -> usize { self.cycles_count }
+    /// The current split of chips between the isoSPI lines.
+    /// 
+    /// This is reported here as the raw OnLineA value. However, the service also
+    /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
+    pub const fn split(&self) -> OnLineA { self.split }
+}
