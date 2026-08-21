@@ -808,7 +808,33 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// 
     /// This function will never return and is intended to be ran in a
     /// dedicated task.
+    /// 
+    /// See `run_with_diagnostics()` if you want to do something with the `ServiceDiagnostics` on
+    /// every cycle, like reporting them over CAN.
     pub async fn run(&self) -> ! {
+        self.run_with_diagnostics(async |_| {}).await
+    }
+
+    /// Runs the service, handing the cycle's `ServiceDiagnostics` to `on_diagnostics` each time.
+    /// 
+    /// This function will never return and is intended to be ran in a
+    /// dedicated task. Use `run()` instead if you don't need the diagnostics.
+    /// 
+    /// This is like `run()`, but it allows you to read diagnostic data from each loop of the service.
+    /// You can use this to send a CAN message with the diagnostic data every time the service runs:
+    /// ```ignore
+    /// service.run_with_diagnostics(async |diagnostics| {
+    ///     let _ = can_sender.try_send(function_that_turns_a_diagnostics_into_a_can_frame(diagnostics));
+    /// }).await
+    /// ```
+    /// 
+    /// Note: you can still access the diagnostics via the `.diagnostics()` method on `Service`, but this closure
+    /// is useful if you want to access the diagnostics and run subsequent code at the same exact frequency the service
+    /// is running (makes timing easier sometimes)
+    /// 
+    /// Other note: Whatever you put in the closure can affect the frequency of the service if there's a lot
+    /// of awaiting going on
+    pub async fn run_with_diagnostics(&self, mut on_diagnostics: impl AsyncFnMut(&ServiceDiagnostics<N>)) -> ! {
         use crate::service::accumulator::{Accumulator, UpdateResult};
 
         // The runner is the only thing that uses this so it doesn't need to be part of `Service`.
@@ -823,6 +849,8 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut max_period = Duration::MIN; // the highest period between two service loops we have observed so far
         let mut max_lock_wait = Duration::MIN; // the highest wait time we have observed between a Service loop starting and us actually getting the mutex
         let mut max_work = Duration::MIN; // the highest time we have observed the work of the service loop taking
+
+        let mut diagnostics: ServiceDiagnostics<N>;
 
         loop {
             let loop_started_timestamp = Instant::now(); // timestamp at the start of loop
@@ -885,27 +913,30 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                 // this is counted before we update the diagnostics so the diagnostics include the cycle being reported!!
                 cycles_count += 1;
                 
+                diagnostics = ServiceDiagnostics {
+                    accumulator_diagnostics: accumulator_diagnostics,
+                    timing_diagnostics: TimingDiagnostics {
+                        period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: self.config.service_frequency_ms,
+                    },
+                    chip_state_diagnostics: ChipStateDiagnostics {
+                        // this calls `*api.chips()` again instead of just using the already-read `chips`
+                        // to make sure the diagnostics gets the absolute final ChipState at the end of the
+                        // Service cycle
+                        chip_state: *api.chips(),
+                        chip_line: core::array::from_fn(|i| api.line_of(i)),
+                    },
+                    split: api.split(),
+                    sleep_detection_spi_error_count,
+                    break_detection_spi_error_count,
+                    cycles_count,
+                };
+
                 // update service diagnostics
-                self.diagnostics.lock(|cell| cell.set(
-                    Some(ServiceDiagnostics {
-                        accumulator_diagnostics: accumulator_diagnostics,
-                        timing_diagnostics: TimingDiagnostics {
-                            period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: self.config.service_frequency_ms,
-                        },
-                        chip_state_diagnostics: ChipStateDiagnostics {
-                            // this calls `*api.chips()` again instead of just using the already-read `chips`
-                            // to make sure the diagnostics gets the absolute final ChipState at the end of the
-                            // Service cycle
-                            chip_state: *api.chips(),
-                            chip_line: core::array::from_fn(|i| api.line_of(i)),
-                        },
-                        split: api.split(),
-                        sleep_detection_spi_error_count,
-                        break_detection_spi_error_count,
-                        cycles_count,
-                     })
-                ));
+                self.diagnostics.lock(|cell| cell.set(Some(diagnostics)));
             }
+
+            // the mutex gaurd is dropped by this point! so we can call the closure
+            on_diagnostics(&diagnostics).await;
 
             Timer::after(Duration::from_millis(self.config.service_frequency_ms)).await
         }
