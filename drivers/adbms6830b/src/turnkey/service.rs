@@ -247,6 +247,8 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     sleep_detection_spi_error_count,
                     break_detection_spi_error_count,
                     cycles_count,
+                    segment_isospi_max_split_attempts: self.config.segment_isospi_max_split_attempts,
+                    segment_isospi_max_verification_attempts: self.config.segment_isospi_max_verification_attempts,
                 };
 
                 // update service diagnostics

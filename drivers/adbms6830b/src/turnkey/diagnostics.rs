@@ -283,6 +283,18 @@ pub struct ServiceDiagnostics<const N: usize> {
     /// This is reported here as the raw OnLineA value. However, the service also
     /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
     pub(crate) split: OnLineA,
+    /// The configured maximum split attempts for isoSPI recovery.
+    /// 
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_split_attempts` from the config. This
+    /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
+    /// it to be.
+    pub(crate) segment_isospi_max_split_attempts: usize,
+    /// The configured maximum verification attempts for isoSPI recovery.
+    /// 
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_verification_attempts` from the config. This
+    /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
+    /// it to be.
+    pub(crate) segment_isospi_max_verification_attempts: usize,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
     /// Diagnostics from the Service's PEC error accumulator.
@@ -302,4 +314,16 @@ impl<const N: usize> ServiceDiagnostics<N> {
     /// This is reported here as the raw OnLineA value. However, the service also
     /// derives the per-chip Line values as part of the per chip diagnostics in case that's easier to read.
     pub const fn split(&self) -> OnLineA { self.split }
+    /// The configured maximum split attempts for isoSPI recovery.
+    /// 
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_split_attempts` from the config. This
+    /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
+    /// it to be.
+    pub const fn max_split_attempts(&self) -> usize { self.segment_isospi_max_split_attempts }
+    /// The configured maximum verification attempts for isoSPI recovery.
+    /// 
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_verification_attempts` from the config. This
+    /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
+    /// it to be.
+    pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_verification_attempts }
 }
