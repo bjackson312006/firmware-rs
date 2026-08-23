@@ -30,7 +30,7 @@ pub mod config {
     /// this is here to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
     /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
     /// indicates a break. So, if a window has less than this, we ignore that window.
-    pub const SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL: usize = 16;
+    pub const SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL: usize = 8;
     /// Percentage of reads that must fail their PEC for a chip to look unreachable.
     ///
     /// A break will cause the affected chips' reads to fail essentially every

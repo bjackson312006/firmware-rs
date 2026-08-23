@@ -66,6 +66,20 @@ pub enum UpdateResult {
     },
 }
 
+/// Result of a call to `is_chip_failed()`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IsChipFailedResult {
+    /// Chip meets the failure criteria.
+    ChipFailed,
+    /// Chip meets the okay criteria (i.e., it is good and is communicating normally)
+    ChipOkay,
+    /// The chip's total attempts for this window are below `segment_isospi_min_attempts_for_fail`.
+    /// In other words, chip cannot be reliably determined as `ChipFailed` or `ChipOkay` because the current window
+    /// hasn't collected enough PEC data to do so.
+    Undetermiend,
+}
+
 /// Helper struct for Service that tracks/manages the PEC error accumulator state.
 ///
 /// Note: This doesn't impl Copy because this is basically a state machine
@@ -213,17 +227,21 @@ impl<const N: usize> Accumulator<N> {
     }
 
     /// PRIVATE! Helper for `update()`. Checks whether or not `chip`'s PEC data passes our failure criteria
-    fn is_chip_failed(&mut self, failure_pct: &[u8; N], chip: usize) -> bool {
+    fn is_chip_failed(&mut self, failure_pct: &[u8; N], chip: usize) -> IsChipFailedResult {
         // first check if we have crossed the minimum amount of PEC attempts to even consider the chip as failed
         // if this is too low we don't have enough PEC data to reliably conclude that a chip has failed
         if self.attempts[chip] < self.config.segment_isospi_min_attempts_for_fail {
             // increment diagnostic for how many times a chip couldn't be judged just due to the min attempts
             self.below_min_attempts_for_fail_count += 1;
-            return false;
+            return IsChipFailedResult::Undetermiend;
         }
         // okay at this point we know we have enough PEC attempt data to actually do the check reliably. So:
         // if this is true we should flag this chip as failed (since we have exceeded the threshold for failing chips)
-        failure_pct[chip] >= self.config.segment_isospi_pec_failure_ratio_pct
+        if failure_pct[chip] >= self.config.segment_isospi_pec_failure_ratio_pct {
+            IsChipFailedResult::ChipFailed
+        } else {
+            IsChipFailedResult::ChipOkay
+        }
     }
 
     /// CRATE PRIVATE! Reports back whether the split asked for by `UpdateResult::BreakDetected` was applied.
@@ -299,12 +317,12 @@ impl<const N: usize> Accumulator<N> {
                     // find the first chip that exceeds our failure criteria
                     // A break takes out every chip past it, so the first unreachable chip only
                     // means a break if every chip after it is unreachable too.
-                    let first = (0..N).find(|&chip| { self.is_chip_failed(&failure_pct, chip) });
+                    let first = (0..N).find(|&chip| { matches!(self.is_chip_failed(&failure_pct, chip), IsChipFailedResult::ChipFailed) });
 
                     if let Some(idx) = first {
                         // okay we found the `first` failing chip, so now we have to check if all the ones after `first`
                         // are also failing. if they are, this is a break
-                        if (idx+1..N).all(|chip| self.is_chip_failed(&failure_pct, chip)) {
+                        if (idx+1..N).all(|chip| matches!(self.is_chip_failed(&failure_pct, chip), IsChipFailedResult::ChipFailed)) {
                             self.reset_chips();
                             self.state = State::Splitting { at: idx, attempts: 0 };
                             break 'update_result UpdateResult::BreakDetected { break_chip_index: idx };
@@ -330,7 +348,7 @@ impl<const N: usize> Accumulator<N> {
                 // case: the verification window is up! see whether the chips past the split
                 // actually came back/can be communicated with now
                 State::Verifying { at, until, attempts } if Instant::now() >= until => {
-                    if !(at..N).any(|chip| self.is_chip_failed(&failure_pct, chip)) {
+                    if !(at..N).any(|chip| matches!(self.is_chip_failed(&failure_pct, chip), IsChipFailedResult::ChipFailed)) {
                         self.reset_chips();
                         self.state = State::Recovered { at };
                     } else if attempts + 1 >= self.config.segment_isospi_max_verification_attempts {
