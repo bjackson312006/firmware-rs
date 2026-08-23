@@ -5,7 +5,8 @@ use super::diagnostics::AccumulatorDiagnostics;
 use super::service::config;
 use super::api::ChipState;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum State {
     /// There is no window open. Watching each update for a chip whose reads are failing.
     /// Basically, everything is normal!
@@ -48,6 +49,8 @@ pub enum State {
 
 /// result of an `.update()` call. Basically just here to
 /// instruct the caller if they need to do anything.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum UpdateResult {
     /// we are good. caller doesn't need to do anything
     Okay,
@@ -64,6 +67,10 @@ pub enum UpdateResult {
 }
 
 /// Helper struct for Service that tracks/manages the PEC error accumulator state.
+///
+/// Note: This doesn't impl Copy because this is basically a state machine
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Accumulator<const N: usize> {
     state: State,
 

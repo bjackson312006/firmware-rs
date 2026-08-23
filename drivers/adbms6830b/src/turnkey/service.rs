@@ -53,7 +53,8 @@ pub mod config {
     pub const SEGMENT_ISOSPI_MAX_VERIFICATION_ATTEMPTS: usize = 2;
 
     /// Configuration constants for a Service. Probably just use `ServiceConfig::default()`
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct ServiceConfig {
         /// How often the service should run, in ms.
         pub service_frequency_ms: u64,
@@ -69,7 +70,7 @@ pub mod config {
         ///
         /// A break will cause the affected chips' reads to fail essentially every
         /// time. So, this value is meant to be quite high. 
-        /// This sits well above any plausible noise level but leaves margin for a link
+        /// This should sit well above any plausible noise level but leaves margin for a link
         /// that is failing intermittently rather than completely.
         pub segment_isospi_pec_failure_ratio_pct: u8,
         /// PEC accumulator setting! Fewest reads in a single update before that update's failure rate can open a window.
@@ -114,6 +115,7 @@ pub struct Service<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> {
     /// modify the config after we store it
     config: config::ServiceConfig,
 }
+
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// Creates a new service.
     pub const fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>, config: config::ServiceConfig) -> Self {

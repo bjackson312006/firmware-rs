@@ -7,7 +7,8 @@ use super::api::{
 use embassy_time::{ Duration };
 
 /// Diagnostics from the Service's PEC error accumulator.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AccumulatorDiagnostics<const N: usize> {
     /// Current state of the accumulator window.
     pub(crate) state: accumulator::State,
@@ -176,7 +177,7 @@ impl<const N: usize> AccumulatorDiagnostics<N> {
 }
 
 /// Diagnostics for the frequency at which the Service is running.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimingDiagnostics {
     /// The difference in time between the most recent Service cycle, and the Service cycle before that.
@@ -249,7 +250,8 @@ impl TimingDiagnostics {
 /// and a few extras added in due to the extra context Service provides.
 /// 
 /// For an instantaneous direct read of `ChipState`, `Service` provides the `.chips()` method.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChipStateDiagnostics<const N: usize> {
     /// Chip state.
     pub(crate) chip_state: [ChipState; N],
@@ -264,7 +266,8 @@ impl<const N: usize> ChipStateDiagnostics<N> {
 }
 
 /// Diagnostics for a Service.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ServiceDiagnostics<const N: usize> {
     /// PEC error accumulator diagnostics.
     pub(crate) accumulator_diagnostics: AccumulatorDiagnostics<N>,

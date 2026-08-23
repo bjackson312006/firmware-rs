@@ -5,8 +5,8 @@ edition = "2024"
 
 [features]
 default = []
-# Feature that implements `defmt::Format` for every public type this driver exposes.
-defmt = ["dep:defmt"]
+# Feature that implements `defmt::Format` for the public types this driver provides in its API.
+defmt = ["dep:defmt", "embassy-time/defmt"]
 
 [dependencies]
 embedded-hal-async.workspace = true

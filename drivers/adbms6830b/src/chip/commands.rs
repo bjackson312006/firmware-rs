@@ -353,7 +353,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 5-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Aux1InputSelection {
         /// AUX Input = ALL
@@ -398,7 +398,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 4-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Aux2InputSelection {
         /// AUX Input = ALL
@@ -430,7 +430,7 @@ pub mod adc {
     /// See Table 19 on page 20 and Table 52 on page 59 of the datasheet.
     /// This enum models the possible combinations of DCP and CONT. The invalid
     /// combaintions of those two bits are left out of this enum on purpose.
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Acquisition {
         /// Make a single measurement and then standby.
@@ -467,7 +467,7 @@ pub mod adc {
     /// This enum is just [`Acquisition`], but without the `Continuous` option. This is because continuous conversions
     /// have no ADC completion to poll on, so the `_autoconvert()` helpers are not allowed to accept `Continuous` as
     /// an option in their parameters.
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AutoAcquisition {
         /// Make a single measurement and then standby.
@@ -519,7 +519,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 2-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum OpenWire {
         /// Open wire detection off on all channels.
@@ -536,7 +536,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 1-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum OpenWireAux {
         /// Off
@@ -549,7 +549,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 1-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Pull {
         /// Pull-down current during AUX conversions (if OW = 1)
@@ -562,7 +562,7 @@ pub mod adc {
     /// See Table 52 on page 59 of the datasheet.
     /// This is a 1-bit field.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ResetFilter {
         /// Do not reset IIR filter.
@@ -573,7 +573,7 @@ pub mod adc {
 
     /// Redundancy (RD) for the ADCV command. See Table 19 on page 20 of the datasheet.
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AdcvRedundancy {
         /// C-ADCs only (no redundant comparison).

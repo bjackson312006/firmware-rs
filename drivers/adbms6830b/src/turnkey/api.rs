@@ -82,7 +82,7 @@ impl CommandCount {
 }
 
 /// Command counter state for one chip.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChipState {
     /// Command Count metadata.
@@ -154,7 +154,7 @@ impl ChipState {
 }
 
 /// Per-chip results of a read.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Responses<G, E, const N: usize> {
     chips: [Option<ChipResponse<G>>; N],
     errors: [Option<Error<E>>; 2],
@@ -217,6 +217,7 @@ impl<G: Copy, E, const N: usize> defmt::Format for Responses<G, E, N> {
 /// - `OnLineA(4)`: Chips `0..4` are on Line A, and chips `4..10` are on Line B. Aka: Chip 0 through Chip 3 are on Line A, and Chip 4 through Chip 9 are on Line B.
 /// - `OnLineA(6)`: Chips `0..6` are on Line A, and chips `6..10` are on Line B. Aka: Chip 0 through Chip 5 are on Line A, and Chip 6 through Chip 9 are on Line B.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OnLineA(pub usize);
 impl From<usize> for OnLineA {
     fn from(num: usize) -> Self {
