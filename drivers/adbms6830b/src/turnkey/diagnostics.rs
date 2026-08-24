@@ -5,7 +5,6 @@ use super::api::{
     LineId, ChipState, OnLineA
 };
 use embassy_time::{ Duration };
-use embedded_hal_async::spi::SpiDevice;
 use super::super::line::Error;
 
 /// Diagnostics from the Service's PEC error accumulator.

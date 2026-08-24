@@ -9,15 +9,13 @@
 //! - There's also `AverageCellVoltagesReadRequest`/`AverageCellVoltagesReadResponse`, `FilteredCellVoltagesReadRequest`/`FilteredCellVoltagesReadResponse`, etc.
 //! - If you want to read a specific cell register group, there's types like `CellVoltagesAReadRequest`/`CellVoltagesAReadResponse`, `CellVoltagesBReadRequest`/`CellVoltagesBReadResponse`, etc.
 
-use bitfield_struct::{bitfield, bitenum};
-use adbms6830b_macros::BitfieldEnumDefault;
+use bitfield_struct::{bitfield};
 
 use super::{register_group, register_group_aggregate};
 use super::super::commands;
 
 /// Field types relavent to the Result Register groups. See Table 104 on page 71 of the datasheet.
 pub mod types {
-    use super::{bitenum, bitfield, BitfieldEnumDefault};
     use crate::chip::registers::table107::{impl_firstrowregister, impl_vpvinner};
 
     impl_firstrowregister!(

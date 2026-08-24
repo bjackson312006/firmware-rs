@@ -271,6 +271,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Releases both lines' SPI devices.
+    #[allow(dead_code)]
     pub(crate) fn release(self) -> (SPI, SPI) {
         (self.line_a.release(), self.line_b.release())
     }
@@ -600,6 +601,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// errors that result in a bad PEC could look like the line end, so probably call this a few times).
     ///
     /// Useful for locating a break. This doesn't change the split.
+    #[allow(dead_code)]
     pub(crate) async fn detect_chips(&mut self, line: LineId) -> Result<usize, Error<SPI::Error>> {
         let result = self.line_mut(line).detect_chips().await;
         if let Err(err) = &result {
@@ -755,7 +757,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// the state guaranteed as valid.
     pub(crate) async fn split_at(&mut self, chip: OnLineA) -> Result<(), Error<SPI::Error>> {
         use crate::chip::registers::config_a::types::CommunicationBreak;
-        use crate::chip::registers::status::StatusC;
 
         self.set_split(chip)?;
 

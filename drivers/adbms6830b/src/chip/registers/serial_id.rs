@@ -1,6 +1,6 @@
 //! Serial ID Registers.
 
-use bitfield_struct::{bitfield, bitenum};
+use bitfield_struct::{bitfield};
 use super::register_group;
 use super::super::commands;
 

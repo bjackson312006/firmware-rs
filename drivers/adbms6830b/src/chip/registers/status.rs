@@ -3,7 +3,7 @@
 use bitfield_struct::{bitfield, bitenum};
 use adbms6830b_macros::BitfieldEnumDefault;
 
-use super::{register_group, register_group_aggregate};
+use super::{register_group};
 use super::super::commands;
 
 /// Field types relavent to the status registers.
@@ -38,7 +38,7 @@ pub mod types {
 
     /// Field types relavent to Status Register B. See Table 106 on page 71 of the datasheet.
     pub mod b {
-        use super::{impl_firstrowregister, impl_itmpinner};
+        use super::{impl_firstrowregister};
 
         impl_firstrowregister!(
             /// Digital power supply voltage (VD). See Table 106 on page 71 of the datasheet.

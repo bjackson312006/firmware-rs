@@ -14,7 +14,7 @@ use super::super::commands;
 
 /// Field types relavent to Configuration Register A. See Table 102 on page 70 of the datasheet.
 pub mod types {
-    use super::{bitenum, bitfield, BitfieldEnumDefault};
+    use super::{bitenum, BitfieldEnumDefault};
 
     /// Reference powered up (REFON). One-bit field.
     #[repr(u8)]
