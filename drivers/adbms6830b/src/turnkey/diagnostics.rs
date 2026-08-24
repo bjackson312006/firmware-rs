@@ -347,12 +347,24 @@ pub struct ServiceDiagnostics<const N: usize> {
     /// it to be.
     pub(crate) segment_isospi_max_failed_verification_attempts: usize,
     /// Total number of times Line A has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub(crate) line_a_error_count: usize,
     /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
     /// Total number of times Line B has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub(crate) line_b_error_count: usize,
     /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
@@ -386,11 +398,23 @@ impl<const N: usize> ServiceDiagnostics<N> {
     /// it to be.
     pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_failed_verification_attempts }
     /// Total number of times Line A has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub const fn line_a_error_count(&self) -> usize { self.line_a_error_count }
     /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub const fn most_recent_line_a_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_a_error }
     /// Total number of times Line B has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub const fn line_b_error_count(&self) -> usize { self.line_b_error_count }
     /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub const fn most_recent_line_b_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_b_error }
 }
