@@ -10,7 +10,13 @@ use embassy_time::{ Duration };
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AccumulatorDiagnostics<const N: usize> {
+    /// State of the accumulator accumulator prior to this Service cycle.
+    /// 
+    /// This is the state `failed`, `attempts`, and `failure_pct` were gathered under.
+    pub(crate) previous_state: accumulator::State,
     /// Current state of the accumulator window.
+    /// 
+    /// This is the state resulting from the `failed`, `attempts`, and `failure_pct` values.
     pub(crate) state: accumulator::State,
     /// Total PEC failures counted for each chip during this window.
     pub(crate) failed: [usize; N],
@@ -93,7 +99,13 @@ pub struct AccumulatorDiagnostics<const N: usize> {
     pub(crate) min_attempts_to_open_window: usize,
 }
 impl<const N: usize> AccumulatorDiagnostics<N> {
+    /// State of the accumulator accumulator prior to this Service cycle.
+    /// 
+    /// This is the state `failed`, `attempts`, and `failure_pct` were gathered under.
+    pub const fn previous_state(&self) -> accumulator::State { self.previous_state }
     /// Current state of the accumulator window.
+    /// 
+    /// This is the state resulting from the `failed`, `attempts`, and `failure_pct` values.
     pub const fn state(&self) -> accumulator::State { self.state }
     /// Total PEC failures counted for each chip during this window.
     pub const fn failed(&self) -> [usize; N] { self.failed }
@@ -294,10 +306,10 @@ pub struct ServiceDiagnostics<const N: usize> {
     pub(crate) segment_isospi_max_split_attempts: usize,
     /// The configured maximum verification attempts for isoSPI recovery.
     /// 
-    /// This is a const value! It literally is just an echo of `segment_isospi_max_verification_attempts` from the config. This
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_failed_verification_attempts` from the config. This
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
-    pub(crate) segment_isospi_max_verification_attempts: usize,
+    pub(crate) segment_isospi_max_failed_verification_attempts: usize,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
     /// Diagnostics from the Service's PEC error accumulator.
@@ -325,8 +337,8 @@ impl<const N: usize> ServiceDiagnostics<N> {
     pub const fn max_split_attempts(&self) -> usize { self.segment_isospi_max_split_attempts }
     /// The configured maximum verification attempts for isoSPI recovery.
     /// 
-    /// This is a const value! It literally is just an echo of `segment_isospi_max_verification_attempts` from the config. This
+    /// This is a const value! It literally is just an echo of `segment_isospi_max_failed_verification_attempts` from the config. This
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
-    pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_verification_attempts }
+    pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_failed_verification_attempts }
 }

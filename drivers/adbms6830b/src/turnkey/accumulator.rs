@@ -29,12 +29,18 @@ pub enum State {
     /// The split for the break at chip `at` was applied. We are now measuring if it worked or not.
     /// 
     /// Recovery worked if none of the chips from `at` onwards are failing anymore. We continuously run windows
-    /// to try verifying, either until it succeeds or we exceed `segment_isospi_max_verification_attempts`.
+    /// to try verifying, either until it succeeds or we exceed `segment_isospi_max_failed_verification_attempts`.
     /// 
     /// `until` is the Instant this verification window is running until.
     /// 
-    /// `attempts` is the number of windows we have tried so far.
-    Verifying { at: usize, until: Instant, attempts: usize },
+    /// `total_attempts` is the total number of windows we have tried so far. Unlike `failed_attempts`, this is not bounded by anything.
+    /// This is typically in sync with `failed_attempts`, but in the case of low traffic, the accumulator will not be able to prove if chips
+    /// are failing or not due to a lack of PEC data. So, the accumulator will be in the `Verifying` state indefinitely with `total_attempts` increasing
+    /// each cycle. It will only leave `Verifying` once traffic picks back up, in which it will be able to actually determine a result.
+    /// 
+    /// `failed_attempts` is the total number of windows that have reported a failure. If this exceeds `segment_isospi_max_failed_verification_attempts`, the
+    /// recovery state will transition to `Failed`.
+    Verifying { at: usize, until: Instant, total_attempts: usize, failed_attempts: usize },
     /// The split at chip `at` was applied and verified. Recovery is done!!!
     /// 
     /// We only have two isoSPI lines so nothing further is detected from here. If after this point another break
@@ -176,7 +182,8 @@ impl<const N: usize> Accumulator<N> {
     fn update_chips(&mut self, chips: &[ChipState; N]) {
         for (chip, state) in chips.iter().enumerate() {
             let failed = state.pec_failed_count();
-            let attempts = failed + state.pec_success_count();
+            let succeeded = state.pec_success_count();
+            let attempts = failed + succeeded;
 
             if self.seeded {
                 self.failed[chip] += failed - self.last_failed[chip];
@@ -264,7 +271,8 @@ impl<const N: usize> Accumulator<N> {
                 at,
                 until: Instant::now()
                     + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
-                attempts: 0,
+                total_attempts: 0,
+                failed_attempts: 0,
             };
         } else if attempts + 1 >= self.config.segment_isospi_max_split_attempts {
             self.state = State::Failed { at };
@@ -297,6 +305,7 @@ impl<const N: usize> Accumulator<N> {
         // (the state handler resets these in some cases so if we were to snapshot them at the end they would not be correct)
         let failed = self.failed;
         let attempts = self.attempts;
+        let old_state = self.state;
 
         // actually do the update/state handling stuff
         let update_result = 'update_result: {
@@ -347,23 +356,75 @@ impl<const N: usize> Accumulator<N> {
 
                 // case: the verification window is up! see whether the chips past the split
                 // actually came back/can be communicated with now
-                State::Verifying { at, until, attempts } if Instant::now() >= until => {
-                    if !(at..N).any(|chip| matches!(self.is_chip_failed(&failure_pct, chip), IsChipFailedResult::ChipFailed)) {
-                        self.reset_chips();
-                        self.state = State::Recovered { at };
-                    } else if attempts + 1 >= self.config.segment_isospi_max_verification_attempts {
-                        self.reset_chips();
-                        self.state = State::Failed { at };
-                    } else {
-                        // Still failing but we haven't exceeded the max verification attempts, so measure another window.
-                        self.reset_chips();
-                        self.state = State::Verifying {
-                            at,
-                            until: Instant::now()
-                                + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
-                            attempts: attempts + 1,
-                        };
+                State::Verifying { at, until, total_attempts, failed_attempts } if Instant::now() >= until => {
+                    enum Outcome {
+                        /// At least one chip was undetermined, so we can't conclude anything right now.
+                        AnyUndetermined,
+                        /// No chips were undetermiend, so we have an `all_okay` result to inspect.
+                        /// 
+                        /// If `all_okay` is true, all chips came back successful. If `all_okay` is false, at least
+                        /// one chip came back failed. 
+                        NoneUndetermined{ all_okay: bool},
                     }
+                    let outcome = 'get_outcome: {
+                        let mut num_failed: usize = 0;
+                        for chip in at..N {
+                            match self.is_chip_failed(&failure_pct, chip) {
+                                IsChipFailedResult::Undetermiend => {
+                                    break 'get_outcome Outcome::AnyUndetermined;
+                                },
+                                IsChipFailedResult::ChipFailed => {
+                                    num_failed += 1;
+                                }
+                                IsChipFailedResult::ChipOkay => {}
+                            }
+                        }
+                        // if we get here we have looped through all chips and know none are undetermined
+                        // `all_okay` is true only if num_failed == 0
+                        break 'get_outcome Outcome::NoneUndetermined { all_okay: num_failed == 0 }
+                    };
+
+                    self.state = match outcome {
+                        // case: at least one chip as undetermiend so we need to retry until we can prove something
+                        Outcome::AnyUndetermined => {
+                            self.reset_chips();
+                            State::Verifying {
+                                at,
+                                until: Instant::now() + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
+                                total_attempts: total_attempts + 1,
+                                failed_attempts: failed_attempts // keep the same this undetermined doesnt count as failed
+                            }
+                        },
+
+                        // case: all chips are not undetermined
+                        Outcome::NoneUndetermined { all_okay } => {
+                            match all_okay {
+                                // case: all chips are confirmed okay and we have recovered
+                                true => {
+                                    self.reset_chips();
+                                    State::Recovered { at }
+                                },
+
+                                // case: at least one chip failed so we need to either retry, or if the max failed attempts has been exceeded, transition to the failed state
+                                false => {
+                                    if failed_attempts + 1 >= self.config.segment_isospi_max_failed_verification_attempts {
+                                        // if we've exceeded the max failed attempts then its over
+                                        self.reset_chips();
+                                        State::Failed { at }
+                                    } else {
+                                        // if we haven't then we can retry
+                                        self.reset_chips();
+                                        State::Verifying {
+                                            at,
+                                            until: Instant::now() + Duration::from_millis(self.config.segment_isospi_eval_period_ms),
+                                            total_attempts: total_attempts + 1,
+                                            failed_attempts: failed_attempts + 1,
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    };
                 }
 
                 // case: still filling the verification window so nothing to do yet
@@ -379,6 +440,7 @@ impl<const N: usize> Accumulator<N> {
 
         // create the diagnostics
         let diagnostics = AccumulatorDiagnostics {
+            previous_state: old_state,
             state: self.state,
             failed,
             attempts,

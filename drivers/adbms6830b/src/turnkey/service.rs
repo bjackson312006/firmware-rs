@@ -21,52 +21,57 @@ use core::cell::Cell;
 
 /// Configuration parameters for the Service. This also includes constant defaults.
 pub mod config {
-    /// How often the service should run, in ms.
+    /// Default value for [ServiceConfig::service_frequency_ms].
     pub const SERVICE_FREQUENCY_MS: u64 = 300;
-    /// How long each evaluation window lasts.
+    /// Default value for [ServiceConfig::segment_isospi_eval_period_ms].
     pub const SEGMENT_ISOSPI_EVAL_PERIOD_MS: u64 = 4000;
-    /// Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything.
-    ///
-    /// this is here to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
-    /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
-    /// indicates a break. So, if a window has less than this, we ignore that window.
+    /// Default value for [ServiceConfig::segment_isospi_min_attempts_for_fail].
     pub const SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL: usize = 8;
-    /// Percentage of reads that must fail their PEC for a chip to look unreachable.
-    ///
-    /// A break will cause the affected chips' reads to fail essentially every
-    /// time. So, this value is meant to be quite high. 
-    /// This sits well above any plausible noise level but leaves margin for a link
-    /// that is failing intermittently rather than completely.
+    /// Default value for [ServiceConfig::segment_isospi_pec_failure_ratio_pct].
     pub const SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT: u8 = 75;
-    /// Fewest reads in a single update before that update's failure rate can open a window.
-    ///
-    /// This is kinda meant to take the place of `SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH` from the C code. It serves
-    /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
-    /// size rather than absolute error count.
+    /// Default value for [ServiceConfig::segment_isospi_min_attempts_to_open_window].
     pub const SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW: usize = 2;
-    /// How many times the Service will try to apply a split before giving up on recovery.
+    /// Default value for [ServiceConfig::segment_isospi_max_split_attempts].
     pub const SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS: usize = 5;
-    /// How many evaluation windows the Service will spend checking whether a split worked before
-    /// giving up on recovery.
-    ///
-    /// This is the equivalent of `ISOSPI_RECOVERY_VERIFICATION_READS` from the C code.
-    pub const SEGMENT_ISOSPI_MAX_VERIFICATION_ATTEMPTS: usize = 2;
+    /// Default value for [ServiceConfig::segment_isospi_max_failed_verification_attempts].
+    pub const SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS: usize = 5;
 
     /// Configuration constants for a Service. Probably just use `ServiceConfig::default()`
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct ServiceConfig {
         /// How often the service should run, in ms.
+        /// 
+        /// This defaults to [SERVICE_FREQUENCY_MS] when you use `ServiceConfig::default()`.
         pub service_frequency_ms: u64,
         /// PEC accumulator setting! How long each evaluation window lasts.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_EVAL_PERIOD_MS] when you use `ServiceConfig::default()`.
         pub segment_isospi_eval_period_ms: u64,
         /// PEC accumulator setting! Fewest reads a chip must have taken part in before its failure rate is actually considered as meaning anything.
         ///
-        /// this is here to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
+        /// This is here to protect against a tiny sample size in the accumulator incorrectly flagging a break. Basically,
         /// if an accumulation window is less than this, there is not enough data to conclude that a PCT of failed PECs actually
         /// indicates a break. So, if a window has less than this, we ignore that window.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_MIN_ATTEMPTS_FOR_FAIL] when you use `ServiceConfig::default()`.
+        /// 
+        /// ### WARNING:
+        /// You should make sure that, in normal operation, your application isn't reading at a frequency below this setting. If you set this
+        /// above the number of reads your application makes during an accumulator window (see `segment_isospi_eval_period_ms`), you will effectively
+        /// be disabling the isoSPI recovery routine because you will never reach the minimum number of PEC attempts to declare a failure.
+        /// 
+        /// As such, it is recommended to set this as low as possible, but above your PEC noise threshold. If this is set too low, you may experience false
+        /// positives in regards to break detection due to a low sample size being susceptible to noise. However, if you set this too high, isoSPI recovery may never
+        /// be able to occur.
+        /// 
+        /// Note: If you are unsure of the frequency at which your application makes read attempts during a PEC window, or you want to double-check that
+        /// the Service's isoSPI recovery isn't skipping detection due to a read frequency lower than this setting, you can monitor the ServiceDiagnostics data
+        /// that gets updated every Service cycle.
         pub segment_isospi_min_attempts_for_fail: usize,
         /// PEC accumulator setting! Percentage of reads that must fail their PEC for a chip to look unreachable.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT] when you use `ServiceConfig::default()`.
         ///
         /// A break will cause the affected chips' reads to fail essentially every
         /// time. So, this value is meant to be quite high. 
@@ -78,15 +83,29 @@ pub mod config {
         /// This is kinda meant to take the place of `SEGMENT_ISOSPI_PEC_ACCUM_START_THRESH` from the C code. It serves
         /// a similar-ish function (in that it is a blocker for an accumulator window being allowed to start), but it uses sample
         /// size rather than absolute error count.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW] when you use `ServiceConfig::default()`.
+        /// 
+        /// ### WARNING:
+        /// This should be set quite low. If you set this higher than the number of reads your application sends within `service_frequency_ms`, you may end up blocking
+        /// the Service from ever opening an isoSPI recovery detection window. So, the safest value is probably something like 1 or 2. It should be set right above the PEC error sum noise level per cycle.
+        /// 
+        /// Note: If you are unsure of the frequency at which your application makes read attempts during a PEC window, or you want to double-check that
+        /// the Service's isoSPI recovery isn't skipping detection due to a read frequency lower than this setting, you can monitor the ServiceDiagnostics data
+        /// that gets updated every Service cycle.
         pub segment_isospi_min_attempts_to_open_window: usize,
-        /// isoSPI recovery setting! How many times the Service will try to apply a split before
+        /// IsoSPI recovery setting! How many times the Service will try to apply a split before
         /// giving up on recovery.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS] when you use `ServiceConfig::default()`.
         pub segment_isospi_max_split_attempts: usize,
-        /// isoSPI recovery setting! How many evaluation windows the Service will spend checking
+        /// IsoSPI recovery setting! How many evaluation windows the Service will spend checking
         /// whether a split worked before giving up on recovery.
         ///
         /// This is the equivalent of `ISOSPI_RECOVERY_VERIFICATION_READS` from the C code.
-        pub segment_isospi_max_verification_attempts: usize,
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS] when you use `ServiceConfig::default()`.
+        pub segment_isospi_max_failed_verification_attempts: usize,
     }
     impl Default for ServiceConfig {
         fn default() -> Self {
@@ -97,7 +116,7 @@ pub mod config {
                 segment_isospi_pec_failure_ratio_pct: SEGMENT_ISOSPI_PEC_FAILURE_RATIO_PCT,
                 segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
                 segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
-                segment_isospi_max_verification_attempts: SEGMENT_ISOSPI_MAX_VERIFICATION_ATTEMPTS,
+                segment_isospi_max_failed_verification_attempts: SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
             }
         }
     }
@@ -222,7 +241,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                         // report back to the accumulator if the split was successful or not so it know if it needs to keep trying or can move on
                         accumulator.was_split_applied(applied);
                     },
-                    UpdateResult::Okay => {}
+                    UpdateResult::Okay => {},
                 }
 
                 // END AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
@@ -250,7 +269,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     break_detection_spi_error_count,
                     cycles_count,
                     segment_isospi_max_split_attempts: self.config.segment_isospi_max_split_attempts,
-                    segment_isospi_max_verification_attempts: self.config.segment_isospi_max_verification_attempts,
+                    segment_isospi_max_failed_verification_attempts: self.config.segment_isospi_max_failed_verification_attempts,
                 };
 
                 // update service diagnostics
