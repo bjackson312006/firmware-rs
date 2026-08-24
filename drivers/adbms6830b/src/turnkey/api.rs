@@ -35,8 +35,6 @@ pub struct CommandCount {
     expected: u8,
     /// Reported command count (reported via reads).
     reported: u8,
-    /// Times the command count has been manually re-synced. 
-    resync_count: usize,
 }
 impl CommandCount {
     /// New CommandCount with initial state.
@@ -44,17 +42,6 @@ impl CommandCount {
         CommandCount {
             expected: 0,
             reported: 0,
-            resync_count: 0,
-        }
-    }
-
-    /// Re-syncs the command counter.
-    /// 
-    /// This is different to `reset()`.
-    pub(crate) const fn resync(&mut self) {
-        if !self.in_sync() {
-            self.expected = self.reported;
-            self.resync_count += 1;
         }
     }
 
@@ -68,14 +55,9 @@ impl CommandCount {
         self.reported
     }
 
-    /// Times this chip's command count has been manually re-synced.
-    pub const fn resync_count(&self) -> usize {
-        self.resync_count
-    }
-
     /// Whether the reported counter matches the expected one.
-    ///
-    /// A mismatch means the chip missed a command, reset, or slept since the last resync.
+    /// 
+    /// This can be expected to be false in some cases, like after isoSPI recovers from a break.
     pub const fn in_sync(&self) -> bool {
         self.expected == self.reported
     }
@@ -87,11 +69,7 @@ impl CommandCount {
 pub struct ChipState {
     /// Command Count metadata.
     pub(crate) command_count: CommandCount,
-    /// Number of times the command count has been reset.
-    /// 
-    /// This is different to the `resync_count` metadata inside
-    /// the CommandCount struct itself. This counts how many times the entire
-    /// `CommandCount` struct has been reset for this chip due to a sleep.
+    /// Number of times the command count for this chip has been reset due to a sleep.
     pub(crate) command_count_resets: usize,
     /// Last time we heard from this chip with a good PEC.
     /// 
@@ -120,7 +98,6 @@ impl ChipState {
         self.command_count = CommandCount {
             expected: count,
             reported: count,
-            resync_count: 0
         };
         self.command_count_resets += 1;
     }
@@ -247,6 +224,15 @@ pub struct Api<SPI, const N: usize> {
     pub(crate) config_a: [Option<ConfigA>; N],
     /// Same thing as `config_a` but for Config B !!!!
     pub(crate) config_b: [Option<ConfigB>; N],
+
+    /// Count of times a SPI error has occured for Line A. For diagnostics.
+    pub(crate) line_a_error_count: usize,
+    /// Count of times a SPI error has occured for Line B. For diagnostics.
+    pub(crate) line_b_error_count: usize,
+    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
 }
 
 #[cfg(feature = "defmt")]
@@ -277,6 +263,10 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             }; N],
             config_a: [None; N],
             config_b: [None; N],
+            line_a_error_count: 0,
+            most_recent_line_a_error: None,
+            line_b_error_count: 0,
+            most_recent_line_b_error: None,
         }
     }
 
@@ -316,15 +306,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
         self.on_line_a = on_line_a;
         Ok(())
-    }
-
-    /// CRATE PRIVATE! Like `set_split()`, but doesn't check if the split is valid.
-    /// 
-    /// ### Safety
-    /// Callers must enforce that `on_line_a <= N` before calling this. This function does not
-    /// check for `on_line_a > N`, so if that is passed in, you will be initializing an invalid split.
-    pub(crate) unsafe fn set_split_unchecked(&mut self, on_line_a: OnLineA) {
-        let _ = self.set_split(on_line_a);
     }
 
     /// Which line a chip is currently reached from.
@@ -394,7 +375,27 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
 
         self.note(line, G::READ_COMMAND);
-        self.line_mut(line).read::<G>(count).await
+        let result = self.line_mut(line).read::<G>(count).await;
+
+        if let Err(err) = &result {
+            match line {
+                LineId::A => {
+                    self.line_a_error_count += 1;
+                    self.most_recent_line_a_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `read_line()`: SPI transaction to Line A failed: {}", err.to_kind())
+                },
+                LineId::B => {
+                    self.line_b_error_count += 1;
+                    self.most_recent_line_b_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `read_line()`: SPI transaction to Line B failed: {}", err.to_kind())
+                }
+
+            }
+        }
+
+        result
     }
 
     /// Reads a register group from every chip.
@@ -446,7 +447,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             Ok(())
         };
 
-                let line_b = if count_b > 0 {
+        let line_b = if count_b > 0 {
             // Line B reaches its chips in reverse logical order.
             let reversed: [G; N] = core::array::from_fn(|i| groups[N - 1 - i]);
             self.note(LineId::B, G::WRITE_COMMAND);
@@ -467,6 +468,20 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             }
         }
 
+        if let Err(err) = &line_a {
+            self.line_a_error_count += 1;
+            self.most_recent_line_a_error = Some(err.to_kind());
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: API: In `write()`: SPI transaction to Line A failed: {}", err.to_kind())
+        }
+
+        if let Err(err) = &line_b {
+            self.line_b_error_count += 1;
+            self.most_recent_line_b_error = Some(err.to_kind());
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: API: In `write()`: SPI transaction to Line B failed: {}", err.to_kind())
+        }
+
         line_a.and(line_b)
     }
 
@@ -474,6 +489,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     pub(crate) async fn command(&mut self, command: Command) -> Result<(), Error<SPI::Error>> {
         let line_a = self.command_line(LineId::A, command).await;
         let line_b = self.command_line(LineId::B, command).await;
+
         line_a.and(line_b)
     }
 
@@ -488,7 +504,26 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
 
         self.note(line, command.frame());
-        self.line_mut(line).command(command).await
+        let result = self.line_mut(line).command(command).await;
+        if let Err(err) = &result {
+            match line {
+                LineId::A => {
+                    self.line_a_error_count += 1;
+                    self.most_recent_line_a_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `command_line()`: SPI transaction to Line A failed: {}", err.to_kind())
+                },
+                LineId::B => {
+                    self.line_b_error_count += 1;
+                    self.most_recent_line_b_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `command_line()`: SPI transaction to Line B failed: {}", err.to_kind())
+                }
+
+            }
+        }
+
+        result
     }
 
     /// Sends a poll command to both lines and reports whether every chip has finished.
@@ -513,7 +548,26 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
 
         self.note(line, command.frame());
-        self.line_mut(line).poll(command, count).await
+        let result = self.line_mut(line).poll(command, count).await;
+        if let Err(err) = &result {
+            match line {
+                LineId::A => {
+                    self.line_a_error_count += 1;
+                    self.most_recent_line_a_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `poll_line()`: SPI transaction to Line A failed: {}", err.to_kind())
+                },
+                LineId::B => {
+                    self.line_b_error_count += 1;
+                    self.most_recent_line_b_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `poll_line()`: SPI transaction to Line B failed: {}", err.to_kind())
+                }
+
+            }
+        }
+
+        result
     }
 
     /// CRATE PRIVATE! Wakes every chip on both lines out of the idle or sleep state.
@@ -522,8 +576,24 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// good idea to follow this with a read and `sync_command_counters()`.
     pub(crate) async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
         let (count_a, count_b) = (self.count(LineId::A), self.count(LineId::B));
-        self.line_a.wakeup(count_a).await?;
-        self.line_b.wakeup(count_b).await
+
+        let result_a = self.line_a.wakeup(count_a).await;
+        if let Err(err) = &result_a {
+            self.line_a_error_count += 1;
+            self.most_recent_line_a_error = Some(err.to_kind());
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: API: In `wakeup()`: SPI transaction to Line A failed: {}", err.to_kind());
+        }
+
+        let result_b = self.line_b.wakeup(count_b).await;
+        if let Err(err) = &result_b {
+            self.line_b_error_count += 1;
+            self.most_recent_line_b_error = Some(err.to_kind());
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: API: In `wakeup()`: SPI transaction to Line B failed: {}", err.to_kind());
+        }
+
+        result_a.and(result_b)
     }
 
     /// CRATE PRIVATE! Counts the chips reachable on one line. This stops at the first bad PEC (note: this means that comm
@@ -531,7 +601,25 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     ///
     /// Useful for locating a break. This doesn't change the split.
     pub(crate) async fn detect_chips(&mut self, line: LineId) -> Result<usize, Error<SPI::Error>> {
-        self.line_mut(line).detect_chips().await
+        let result = self.line_mut(line).detect_chips().await;
+        if let Err(err) = &result {
+            match line {
+                LineId::A => {
+                    self.line_a_error_count += 1;
+                    self.most_recent_line_a_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `detect_chips()`: SPI transaction to Line A failed: {}", err.to_kind());
+                },
+                LineId::B => {
+                    self.line_b_error_count += 1;
+                    self.most_recent_line_b_error = Some(err.to_kind());
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("ADBMS6830B: API: In `detect_chips()`: SPI transaction to Line B failed: {}", err.to_kind());
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -651,25 +739,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
 ///
 /// Helpers for routing around a break in the daisy chain.
 impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
-    /// CRATE PRIVATE! Adopts each chip's reported command counter as its expected command counter, for every chip in
-    /// `statuses` whose PEC passed.
-    pub(crate) fn resync_command_counts<G: Copy>(
-        &mut self,
-        statuses: &Responses<G, SPI::Error, N>,
-    ) {
-        for chip in 0..N {
-            let Some(response) = statuses.chip(chip) else {
-                continue;
-            };
-
-            if response.pec().is_failed() {
-                continue;
-            }
-
-            self.chips[chip].command_count.resync();
-        }
-    }
-
     /// Splits the chain at `chip`. Chips `0..chip` will be on Line A, and chips `chip..N` will be on Line B.
     ///
     /// This sets the `COMM_BK` bit for the two chips on either side of the new boundary point. See
@@ -688,29 +757,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         use crate::chip::registers::config_a::types::CommunicationBreak;
         use crate::chip::registers::status::StatusC;
 
-        // general note: this function uses `self.set_split_unchecked()` instead of `self.set_split()` because
-        // if this function needs to fail prematurely anywhere, we need to reset the split to `original_split` to avoid
-        // misrepresenting an unconfirmed or half-baked state
-
-        // make sure `chip` is valid
-        if usize::from(chip) > N {
-            return Err(Error::TooManyDevices);
-        }
-
-        // saves the original software split state so we can restore it just in case an error
-        let original_split = self.split();
-        if usize::from(original_split) > N {
-            #[cfg(feature = "defmt")] {
-                defmt::error!("ADBMS6830B: Manager: In split_at(): `self.split()` returned an `original_split` that is larger than N, which is an invalid value. This likely means that the split state was updated via the unsafe `set_split_unchecked()` function somewhere in the program without valid bounds checking, violating the safety of that function.");
-            }
-            return Err(Error::TooManyDevices)
-        }
-
-        // gotta set the split before actually writing COMM_BK so self.write() works for the split
-        unsafe { 
-            // SAFETY: we have already checked that `chip > N` is false
-            self.set_split_unchecked(chip) 
-        };
+        self.set_split(chip)?;
 
         // DO A READ-MODIFY-WRITE OF CONFIGA:
 
@@ -728,11 +775,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
 
         self.write(&configs).await?;
-
-        // chips after the break missed every command sent while it was open, so their
-        // counters tracked in software are ahead of what those chips actually have on their hardware. so we need to resync
-        let statuses = self.read::<StatusC>().await;
-        self.resync_command_counts(&statuses);
 
         Ok(())
     }

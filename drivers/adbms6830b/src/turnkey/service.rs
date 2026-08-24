@@ -229,13 +229,13 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                             // don't need to do anything since this is normal
                         },
                     },
-                    Err(err) => {
+                    Err(_err) => {
                         sleep_detection_spi_error_count += 1;
                         #[cfg(feature = "defmt")]
                         // we need to use `Debug2Format` because `Error<SPI::Error>` only implements `Format` when the
                         // SPI error type does, and we can't gaurauntee that the SPI error type will. `Debug` is guaranteed tho
                         // since `embedded_hal::spi::Error` requires it.
-                        defmt::error!("ADBMS6830B: Service: `handle_sleep_detection()` failed with error: {}", defmt::Debug2Format(&err));
+                        defmt::error!("ADBMS6830B: Service: `handle_sleep_detection()` failed with error: {}", defmt::Debug2Format(&_err));
                     }
                 }
 
@@ -246,13 +246,13 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     UpdateResult::BreakDetected { break_chip_index } => {
                         let applied = match self.handle_break_detected(&mut api, break_chip_index).await {
                             Ok(()) => true,
-                            Err(err) => {
+                            Err(_err) => {
                                 break_detection_spi_error_count += 1;
                                 #[cfg(feature = "defmt")]
                                 // we need to use `Debug2Format` because `Error<SPI::Error>` only implements `Format` when the
                                 // SPI error type does, and we can't gaurauntee that the SPI error type will. `Debug` is guaranteed tho
                                 // since `embedded_hal::spi::Error` requires it.
-                                defmt::error!("ADBMS6830B: Service: `handle_break_detection()` failed with error: {}", defmt::Debug2Format(&err));
+                                defmt::error!("ADBMS6830B: Service: `handle_break_detection()` failed with error: {}", defmt::Debug2Format(&_err));
                                 false
                             }
                         };
@@ -288,6 +288,10 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     cycles_count,
                     segment_isospi_max_split_attempts: self.config.segment_isospi_max_split_attempts,
                     segment_isospi_max_failed_verification_attempts: self.config.segment_isospi_max_failed_verification_attempts,
+                    line_a_error_count: api.line_a_error_count,
+                    most_recent_line_a_error: api.most_recent_line_a_error,
+                    line_b_error_count: api.line_b_error_count,
+                    most_recent_line_b_error: api.most_recent_line_b_error,
                 };
 
                 // update service diagnostics
@@ -444,7 +448,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
         // RDSTATC doesn't increment the command counter, so this doesn't perturb what we're measuring.
         let mut statuses = api.read::<StatusC>().await;
-        if statuses.all_ok() && statuses.iter().flatten().all(|r| r.data().sleep() == SleepModeDetection::SleepModeNotDetected) {
+        if statuses.all_ok() && statuses.iter().flatten().all(|r: crate::line::ChipResponse<StatusC>| r.data().sleep() == SleepModeDetection::SleepModeNotDetected) {
             return Ok(SleepDetectionResult::SleepNotDetected);
         }
 
@@ -454,10 +458,6 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
         let mut any_slept = false;
         let mut clears = [ClearFlags::new(); N];
-
-        // Adopt what every reachable chip just reported. Chips that actually slept get a full
-        // reset below instead, which supersedes this!!
-        api.resync_command_counts(&statuses);
 
         for (chip, response) in statuses.iter().enumerate() {
             let Some(response) = response else { continue };

@@ -21,6 +21,17 @@ pub enum Error<E> {
     /// A user-provided timeout elapsed before the operation finished.
     Timeout,
 }
+impl<E: embedded_hal_async::spi::Error> Error<E> {
+    /// Converts the error into an error with embedded_hal_async::spi::ErrorKind.
+    pub fn to_kind(&self) -> Error<embedded_hal_async::spi::ErrorKind> {
+        match self {
+            Error::Spi(err)       => Error::Spi(err.kind()),
+            Error::TooManyDevices => Error::TooManyDevices,
+            Error::Timeout        => Error::Timeout,
+        }
+    }
+}
+
 
 /// Result of a device's data PEC check.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

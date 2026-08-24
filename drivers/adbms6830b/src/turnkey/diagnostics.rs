@@ -5,6 +5,8 @@ use super::api::{
     LineId, ChipState, OnLineA
 };
 use embassy_time::{ Duration };
+use embedded_hal_async::spi::SpiDevice;
+use super::super::line::Error;
 
 /// Diagnostics from the Service's PEC error accumulator.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -344,6 +346,14 @@ pub struct ServiceDiagnostics<const N: usize> {
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
     pub(crate) segment_isospi_max_failed_verification_attempts: usize,
+    /// Total number of times Line A has failed with a SPI::Error.
+    pub(crate) line_a_error_count: usize,
+    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Total number of times Line B has failed with a SPI::Error.
+    pub(crate) line_b_error_count: usize,
+    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
     /// Diagnostics from the Service's PEC error accumulator.
@@ -375,4 +385,12 @@ impl<const N: usize> ServiceDiagnostics<N> {
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
     pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_failed_verification_attempts }
+    /// Total number of times Line A has failed with a SPI::Error.
+    pub const fn line_a_error_count(&self) -> usize { self.line_a_error_count }
+    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    pub const fn most_recent_line_a_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_a_error }
+    /// Total number of times Line B has failed with a SPI::Error.
+    pub const fn line_b_error_count(&self) -> usize { self.line_b_error_count }
+    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    pub const fn most_recent_line_b_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_b_error }
 }
