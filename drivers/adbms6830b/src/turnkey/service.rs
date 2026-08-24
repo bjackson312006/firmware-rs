@@ -35,6 +35,8 @@ pub mod config {
     pub const SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS: usize = 5;
     /// Default value for [ServiceConfig::segment_isospi_max_failed_verification_attempts].
     pub const SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS: usize = 5;
+    /// Default value for [ServiceConfig::segment_isospi_recovery_startup_time_ms].
+    pub const SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS: u64 = 1500;
 
     /// Configuration constants for a Service. Probably just use `ServiceConfig::default()`
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +108,13 @@ pub mod config {
         /// 
         /// This defaults to [SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS] when you use `ServiceConfig::default()`.
         pub segment_isospi_max_failed_verification_attempts: usize,
+        /// "Grace period" before isoSPI recovery windows can start accumulating, applied after startup and after the Service detects a chip fell asleep.
+        /// 
+        /// In other words: For `segment_isospi_recovery_startup_time_ms` milliseconds after startup/wakeup, isoSPI error detection will be disabled. This allows the chips
+        /// to settle down before we hold them against standards.
+        /// 
+        /// This defaults to [SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS] when you use `ServiceConfig::default()`.
+        pub segment_isospi_recovery_startup_time_ms: u64,
     }
     impl Default for ServiceConfig {
         fn default() -> Self {
@@ -117,6 +126,7 @@ pub mod config {
                 segment_isospi_min_attempts_to_open_window: SEGMENT_ISOSPI_MIN_ATTEMPTS_TO_OPEN_WINDOW,
                 segment_isospi_max_split_attempts: SEGMENT_ISOSPI_MAX_SPLIT_ATTEMPTS,
                 segment_isospi_max_failed_verification_attempts: SEGMENT_ISOSPI_MAX_FAILED_VERIFICATION_ATTEMPTS,
+                segment_isospi_recovery_startup_time_ms: SEGMENT_ISOSPI_RECOVERY_STARTUP_TIME_MS,
             }
         }
     }
@@ -210,7 +220,15 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
                 // this should run first so the sleep detection reads count towards the accumulator update break detection
                 match self.handle_sleep_detection(&mut api).await {
-                    Ok(()) => {},
+                    Ok(result) => match result {
+                        SleepDetectionResult::SleepDetected => {
+                            // sleep was detected to we need to start up a PEC mask
+                            accumulator.set_masked();
+                        },
+                        SleepDetectionResult::SleepNotDetected => {
+                            // don't need to do anything since this is normal
+                        },
+                    },
                     Err(err) => {
                         sleep_detection_spi_error_count += 1;
                         #[cfg(feature = "defmt")]
@@ -371,6 +389,18 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     }
 }
 
+/// Private! Contains the results for a `handle_sleep_detection()` call.
+enum SleepDetectionResult {
+    /// Sleep was detected during this call.
+    /// 
+    /// At least one chip has appeared to sleep since we last checked.
+    SleepDetected,
+    /// Sleep was not detected during this call.
+    /// 
+    /// No chips appeared to sleep since we last checked.
+    SleepNotDetected,
+}
+
 /// # Helpers
 /// 
 /// Internal helpers for the service.
@@ -404,7 +434,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
     /// PRIVATE! Detects chips that have slept, re-baselines their command counters,
     /// restores the configuration they lost.
-    async fn handle_sleep_detection(&self, api: &mut Api<SPI, N>) -> Result<(), Error<SPI::Error>> {
+    async fn handle_sleep_detection(&self, api: &mut Api<SPI, N>) -> Result<SleepDetectionResult, Error<SPI::Error>> {
         use crate::chip::registers:: {
             status::StatusC,
             clear::ClearFlags,
@@ -415,7 +445,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         // RDSTATC doesn't increment the command counter, so this doesn't perturb what we're measuring.
         let mut statuses = api.read::<StatusC>().await;
         if statuses.all_ok() && statuses.iter().flatten().all(|r| r.data().sleep() == SleepModeDetection::SleepModeNotDetected) {
-            return Ok(());
+            return Ok(SleepDetectionResult::SleepNotDetected);
         }
 
         // Something is off, so wake the chain and take the observation we can trust.
@@ -453,9 +483,11 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
             api.write(&config_b).await?;
 
             // write the clears
-            api.write(&clears).await
+            api.write(&clears).await?;
+
+            Ok(SleepDetectionResult::SleepDetected)
         } else {
-            Ok(())
+            Ok(SleepDetectionResult::SleepNotDetected)
         }
     }
 }

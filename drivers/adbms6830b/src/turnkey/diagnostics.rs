@@ -97,6 +97,23 @@ pub struct AccumulatorDiagnostics<const N: usize> {
     /// just for convenience, and so we can double-check this configured constant
     /// is in fact what we expect it to be.
     pub(crate) min_attempts_to_open_window: usize,
+    /// Current PEC mask state.
+    pub(crate) pec_mask: accumulator::PecMask,
+    /// Length of grace period that occurs after startup or after a sleep, where the accumulator doesn't accumulate PEC errors.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_recovery_startup_time_ms` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub(crate) recovery_startup_time: u64,
+
+    /// This counts the number of times `update_chips()` (and therefore `update()` itself) has run while a PEC
+    /// mask is active. This can be useful to check if chips keep sleeping unexpectedly, and if that sleeping
+    /// is stopping the PEC accumulator from progressing.
+    /// 
+    /// This will increment a few times (depending on your configured Service frequency and PEC mask duration) at startup, and then
+    /// whenever chips sleep (if any do) thereafter.
+    pub(crate) updates_while_masked_count: usize,
 }
 impl<const N: usize> AccumulatorDiagnostics<N> {
     /// State of the accumulator accumulator prior to this Service cycle.
@@ -186,6 +203,23 @@ impl<const N: usize> AccumulatorDiagnostics<N> {
     /// just for convenience, and so we can double-check this configured constant
     /// is in fact what we expect it to be.
     pub const fn min_attempts_to_open_window(&self) -> usize { self.min_attempts_to_open_window }
+
+    /// Current PEC mask state.
+    pub const fn pec_mask(&self) -> accumulator::PecMask { self.pec_mask }
+    /// Length of grace period that occurs after startup or after a sleep, where the accumulator doesn't accumulate PEC errors.
+    /// 
+    /// Note: This is a constant value! It is literally just an echo of
+    /// `segment_isospi_recovery_startup_time_ms` from the config. It's included in these diagnostics
+    /// just for convenience, and so we can double-check this configured constant
+    /// is in fact what we expect it to be.
+    pub const fn recovery_startup_time(&self) -> u64 { self.recovery_startup_time }
+    /// This counts the number of times `update_chips()` (and therefore `update()` itself) has run while a PEC
+    /// mask is active. This can be useful to check if chips keep sleeping unexpectedly, and if that sleeping
+    /// is stopping the PEC accumulator from progressing.
+    /// 
+    /// This will increment a few times (depending on your configured Service frequency and PEC mask duration) at startup, and then
+    /// whenever chips sleep (if any do) thereafter.
+    pub const fn updates_while_masked_count(&self) -> usize { self.updates_while_masked_count }
 }
 
 /// Diagnostics for the frequency at which the Service is running.

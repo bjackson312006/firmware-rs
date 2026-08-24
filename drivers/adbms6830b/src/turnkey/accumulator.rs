@@ -1,6 +1,8 @@
 //! Service helper. Tracks each chip's PEC failure rate and reports where a break has opened.
 
 use embassy_time::{Duration, Instant};
+use crate::turnkey::accumulator::PecMask::Uninitialized;
+
 use super::diagnostics::AccumulatorDiagnostics;
 use super::service::config;
 use super::api::ChipState;
@@ -86,9 +88,37 @@ pub enum IsChipFailedResult {
     Undetermiend,
 }
 
+/// Represents the PecMask states.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PecMask {
+    /// Default uninitialized state on startup before the first update() runs.
+    Uninitialized,
+    /// Normal operation. The PEC mask is not active, so the accumulator is accumulating PEC errors as normal.
+    NotMasked,
+    /// PEC mask is active. Until `until`, the accumulator does not accumulate PEC errors.
+    Masked { until: Instant }
+}
+impl PecMask {
+    /// Whether or not this PecMask is `PecMask::Uninitialized`.
+    pub const fn is_uninitialized(&self) -> bool { matches!(&self, PecMask::Uninitialized) }
+    /// Whether or not this PecMask is `PecMask::Masked`.
+    /// 
+    /// Note: This doesn't check if `until` is currently expired or not. That is something the Service
+    /// updates every time it runs.
+    pub const fn is_masked(&self) -> bool { matches!(&self, PecMask::Masked { until: _ }) }
+    /// If this PecMask is `PecMask::Masked`, this returns `Some(until)`. Otherwise, this returns `None`.
+    pub const fn until(&self) -> Option<Instant> {
+        match self {
+            PecMask::Masked { until } => Some(*until),
+            _ => None,
+        }
+    }
+}
+
 /// Helper struct for Service that tracks/manages the PEC error accumulator state.
 ///
-/// Note: This doesn't impl Copy because this is basically a state machine
+/// Note: This doesn't impl Copy because this is a state machine
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Accumulator<const N: usize> {
@@ -155,6 +185,17 @@ pub struct Accumulator<const N: usize> {
 
     /// Service config for the service.
     config: config::ServiceConfig,
+
+    /// This is basically the same thing as the PEC mask from the C driver/TSECU-Shep. See enum [PecMask] docs.
+    pec_mask: PecMask,
+
+    /// This counts the number of times `update_chips()` (and therefore `update()` itself) has run while a PEC
+    /// mask is active. This can be useful to check if chips keep sleeping unexpectedly, and if that sleeping
+    /// is stopping the PEC accumulator from progressing.
+    /// 
+    /// This will increment a few times (depending on your configured Service frequency and PEC mask duration) at startup, and then
+    /// whenever chips sleep (if any do) thereafter.
+    updates_while_masked_count: usize,
 }
 impl<const N: usize> Accumulator<N> {
     /// Default initialization for the accumulator. Will be idle by default.
@@ -169,6 +210,8 @@ impl<const N: usize> Accumulator<N> {
             below_min_attempts_for_fail_count: 0,
             seeded: false,
             config,
+            pec_mask: Uninitialized,
+            updates_while_masked_count: 0,
         }
     }
 
@@ -180,18 +223,34 @@ impl<const N: usize> Accumulator<N> {
 
     /// PRIVATE! Adds each chip's PEC outcomes since the last update to this window.
     fn update_chips(&mut self, chips: &[ChipState; N]) {
+        // if mask is uninitialized then this is the first update() that has run. so, we need to initialize PecMask
+        if self.pec_mask.is_uninitialized() {
+            self.set_masked();
+        }
+
+        // if the mask is expired, set it to NotMasked before doing anything
+        if let Some(until) = self.pec_mask.until() {
+            if Instant::now() >= until {
+                self.pec_mask = PecMask::NotMasked;
+            }
+        }
+
         for (chip, state) in chips.iter().enumerate() {
             let failed = state.pec_failed_count();
             let succeeded = state.pec_success_count();
             let attempts = failed + succeeded;
 
-            if self.seeded {
+            if self.seeded && !self.pec_mask.is_masked() {
                 self.failed[chip] += failed - self.last_failed[chip];
                 self.attempts[chip] += attempts - self.last_attempts[chip];
             }
 
             self.last_failed[chip] = failed;
             self.last_attempts[chip] = attempts;
+        }
+
+        if self.pec_mask.is_masked() {
+            self.updates_while_masked_count += 1;
         }
 
         self.seeded = true;
@@ -281,6 +340,12 @@ impl<const N: usize> Accumulator<N> {
         }
     }
 
+    /// CRATE PRIVATE! This sets activates the PEC mask from `Instant::now()` until `Instant::now() + segment_isospi_recovery_startup_time_ms`. 
+    pub(crate) fn set_masked(&mut self) {
+        self.reset_chips(); // need to reset error sums since whatever is already accumulated was measured across the sleep
+        self.pec_mask = PecMask::Masked { until: Instant::now() + Duration::from_millis(self.config.segment_isospi_recovery_startup_time_ms) }
+    }
+
     /// Updates the PEC error accumulator state, and detects if a break should be set.
     /// 
     /// This should be called in every iteration of the Service runner. This will return either `UpdateResult::Okay`, meaning that
@@ -311,8 +376,7 @@ impl<const N: usize> Accumulator<N> {
         let update_result = 'update_result: {
             match self.state {
                 // case: no window is open, so the tallies hold only this update's reads (they get
-                // cleared every update we stay here). A chip failing its reads right now is what
-                // opens a window, so the window lines up with the start of the problem.
+                // cleared every update we stay here).
                 State::Idle => {
                     if (0..N).any(|chip| { self.should_we_open_window_for_chip(&failure_pct, chip) }) {
                         self.open_window();
@@ -324,8 +388,8 @@ impl<const N: usize> Accumulator<N> {
                 // case: the window is up, so see whether what it caught looks like a break.
                 State::Accumulating { until } if Instant::now() >= until => {
                     // find the first chip that exceeds our failure criteria
-                    // A break takes out every chip past it, so the first unreachable chip only
-                    // means a break if every chip after it is unreachable too.
+                    // A break will make all the chips after it unreachable, so the first unreachable chip only
+                    // indicates a break if every chip after it is also unreachable
                     let first = (0..N).find(|&chip| { matches!(self.is_chip_failed(&failure_pct, chip), IsChipFailedResult::ChipFailed) });
 
                     if let Some(idx) = first {
@@ -451,6 +515,9 @@ impl<const N: usize> Accumulator<N> {
             below_min_attempts_to_open_window_count: self.below_min_attempts_to_open_window_count,
             below_min_attempts_for_fail_count: self.below_min_attempts_for_fail_count,
             min_attempts_to_open_window: self.config.segment_isospi_min_attempts_to_open_window,
+            pec_mask: self.pec_mask,
+            recovery_startup_time: self.config.segment_isospi_recovery_startup_time_ms,
+            updates_while_masked_count: self.updates_while_masked_count,
         };
 
         (update_result, diagnostics)
