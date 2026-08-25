@@ -6,6 +6,7 @@ use super::api::{
 };
 use embassy_time::{ Duration };
 use super::super::line::Error;
+pub use super::accumulator::PecMask;
 
 /// Diagnostics from the Service's PEC error accumulator.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
