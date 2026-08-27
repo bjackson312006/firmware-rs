@@ -333,7 +333,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// Wakes every chip on both lines out of the idle or sleep state.
     ///
     /// Chips that were asleep come back with their counters at 0.
-    pub async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
+    pub async fn wakeup(&self) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.wakeup().await
     }
