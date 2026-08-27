@@ -4,7 +4,7 @@ use embassy_time::{Duration, Instant};
 use crate::turnkey::accumulator::PecMask::Uninitialized;
 
 use super::diagnostics::AccumulatorDiagnostics;
-use super::service::config;
+use super::service::service_config;
 use super::api::ChipState;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -184,7 +184,7 @@ pub struct Accumulator<const N: usize> {
     seeded: bool,
 
     /// Service config for the service.
-    config: config::ServiceConfig,
+    config: service_config::ServiceConfig,
 
     /// This is basically the same thing as the PEC mask from the C driver/TSECU-Shep. See enum [PecMask] docs.
     pec_mask: PecMask,
@@ -199,7 +199,7 @@ pub struct Accumulator<const N: usize> {
 }
 impl<const N: usize> Accumulator<N> {
     /// Default initialization for the accumulator. Will be idle by default.
-    pub(crate) const fn new(config: config::ServiceConfig) -> Self {
+    pub(crate) const fn new(config: service_config::ServiceConfig) -> Self {
         Self {
             state: State::Idle,
             failed: [0; N],

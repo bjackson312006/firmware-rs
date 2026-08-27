@@ -366,6 +366,8 @@ pub struct ServiceDiagnostics<const N: usize> {
     /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
     /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Current startup state (associated with the `on_startup` closure).
+    pub(crate) startup_state: super::service::StartupState,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
     /// Diagnostics from the Service's PEC error accumulator.
@@ -417,4 +419,6 @@ impl<const N: usize> ServiceDiagnostics<N> {
     /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
     /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
     pub const fn most_recent_line_b_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_b_error }
+    /// Current startup state (associated with the `on_startup` closure).
+    pub const fn startup_state(&self) -> super::service::StartupState { self.startup_state }
 }

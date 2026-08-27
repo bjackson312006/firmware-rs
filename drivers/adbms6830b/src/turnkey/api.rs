@@ -130,6 +130,33 @@ impl ChipState {
     }
 }
 
+/// Module governing the register groups the application is allowed to write directly.
+pub mod writeables {
+    use super::super::super::{
+        chip::registers::{
+            WritableGroup,
+            clear,
+            pwm,
+            comm
+        }
+    };
+    
+    /// A writable group the application is allowed to write directly.
+    /// 
+    /// Not all register groups are in here on purpose (since some need to be gaurded)
+    #[diagnostic::on_unimplemented(
+        message = "`{Self}` cannot be written through `Service::write()`",
+        label = "this register group is owned by the Service",
+        note = "use the dedicated methods instead"
+    )]
+    pub trait AppWritableGroup: WritableGroup {}
+    impl AppWritableGroup for clear::ClearFlags {}
+    impl AppWritableGroup for pwm::PwmA {}
+    impl AppWritableGroup for pwm::PwmB {}
+    impl AppWritableGroup for comm::WriteCommI2c {}
+    impl AppWritableGroup for comm::WriteCommSpi {}
+}
+
 /// Per-chip results of a read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Responses<G, E, const N: usize> {
@@ -217,13 +244,9 @@ pub struct Api<SPI, const N: usize> {
     /// State metadata for each chip
     pub(crate) chips: [ChipState; N],
 
-    /// Each chip's cached Config A register state. An entry is `None` until that register
-    /// is written to.
-    /// 
-    /// This is used to automatically reconfigure the registers if a sleep is detected.
-    pub(crate) config_a: [Option<ConfigA>; N],
-    /// Same thing as `config_a` but for Config B !!!!
-    pub(crate) config_b: [Option<ConfigB>; N],
+    /// cached ConfigA setting for the use of isoSPI recovery
+    /// should not be public to the rest of the crate!
+    config_a: [ConfigA; N],
 
     /// Count of times a SPI error has occured for Line A. For diagnostics.
     pub(crate) line_a_error_count: usize,
@@ -233,6 +256,50 @@ pub struct Api<SPI, const N: usize> {
     pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
     /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
     pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+}
+
+/// isoSPI recovery!
+impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
+    /// PRIVATE! Helper that overwrites the provided ConfigAs with the current split's COMM_BK setting.
+    fn overwrite_configa_with_split(&mut self, configs: &mut [ConfigA; N]) {
+        use crate::chip::registers::config_a::types::CommunicationBreak;
+
+        let chip: usize = self.split().into();
+        if chip > 0 && chip < N {
+            configs[chip] = configs[chip].with_comm_bk(CommunicationBreak::Enable);
+            configs[chip - 1] = configs[chip - 1].with_comm_bk(CommunicationBreak::Enable);
+        }
+    }
+
+    /// Splits the chain at `chip`. Chips `0..chip` will be on Line A, and chips `chip..N` will be on Line B.
+    ///
+    /// This sets the `COMM_BK` bit for the two chips on either side of the new boundary point. See
+    /// the "COMMUNICATION BREAK" section on page 53 of the datasheet.
+    ///
+    /// Note: `OnLineA(0)` puts all chips on Line B and `OnLineA(N)` puts all chips on Line A, so for those
+    /// specific inputs, no boundary is set and no COMM_BK is set.
+    /// 
+    /// Other probably more important note: If this function returns an error, the split state (both in software and in hardware)
+    /// are not guaranteed to be valid. If the SPI transactions carrying the COMM_BK commands fail, it isn't
+    /// really possible for this function to tell if the COMM_BK commands were successfully recieved by the chips or not. So, the software state
+    /// will kind of be in limbo. As such, it is the caller's responsibility to have some kind of recovery routine for when this
+    /// function returns an error. Said recovery routine should probably not end until this function returns Ok(()), since only then is
+    /// the state guaranteed as valid.
+    pub(crate) async fn split_at(&mut self, chip: OnLineA) -> Result<(), Error<SPI::Error>> {
+        self.set_split(chip)?;
+
+        // DO A READ-MODIFY-WRITE OF CONFIGA:
+
+        // for the "read" part of the read-modify-write, we are using the cached config_a we track in self
+        // technically it probably would be more fullproof to just read the config_a states directly from what they
+        // are on the chips right now, but that would use an additional SPI transaction that itself could be another point
+        // of failure, especially since we are attempting to recover rn
+        let mut configs: [ConfigA; N] = core::array::from_fn(|i| self.config_a[i]);
+        self.overwrite_configa_with_split(&mut configs);
+        self.set_configa(&configs).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -261,8 +328,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
                 pec_success_count: 0,
                 pec_failed_count: 0,
             }; N],
-            config_a: [None; N],
-            config_b: [None; N],
+            config_a: [ConfigA::new(); N],
             line_a_error_count: 0,
             most_recent_line_a_error: None,
             line_b_error_count: 0,
@@ -434,11 +500,37 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         }
     }
 
+    /// Read-only access to the cached ConfigA.
+    pub(crate) fn configa(&self) -> &[ConfigA; N] {
+        &self.config_a
+    }
+
+    /// Sets ConfigA.
+    /// 
+    /// This will also update the cached ConfigA value inside Api. Also, it will overwrite whatever
+    /// COMM_BK value you have provied with whatever is determined by the current Line split.
+    pub(crate) async fn set_configa(&mut self, configs: &[ConfigA; N]) -> Result<(), Error<SPI::Error>> {
+        let mut configs = *configs;
+        self.overwrite_configa_with_split(&mut configs);
+        self.config_a = configs;
+        self.private_write(&configs).await
+    }
+
+    /// Sets ConfigB.
+    pub(crate) async fn set_configb(&mut self, configs: &[ConfigB; N]) -> Result<(), Error<SPI::Error>> {
+        // this function does nothing special right now. but probably keep it here in case we need to cache configb in the future
+        self.private_write(&configs).await
+    }
+    
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
-    pub(crate) async fn write<G: WritableGroup>(
-        &mut self,
-        groups: &[G; N],
-    ) -> Result<(), Error<SPI::Error>> {
+    pub(crate) async fn write<G: writeables::AppWritableGroup>(&mut self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
+        self.private_write(groups).await
+    }
+
+    /// Writes one register group per chip. `groups` is indexed in logical chip order.
+    /// 
+    /// PRIVATE! This lets you pass in any `WriteableGroup` so it's not meant to be used outside of this mod.
+    async fn private_write<G: WritableGroup>(&mut self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
         let (count_a, count_b) = (self.count(LineId::A), self.count(LineId::B));
 
         let line_a = if count_a > 0 {
@@ -456,18 +548,6 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         } else {
             Ok(())
         };
-
-        // Cache the config groups so a chip that sleeps (and resets its registers to defaults)
-        // can be restored to what the application last asked for.
-        if G::WRITE_COMMAND == ConfigA::WRITE_COMMAND {
-            for (chip, group) in groups.iter().enumerate() {
-                self.config_a[chip] = Some(ConfigA::from_bytes(group.to_bytes()));
-            }
-        } else if G::WRITE_COMMAND == ConfigB::WRITE_COMMAND {
-            for (chip, group) in groups.iter().enumerate() {
-                self.config_b[chip] = Some(ConfigB::from_bytes(group.to_bytes()));
-            }
-        }
 
         if let Err(err) = &line_a {
             self.line_a_error_count += 1;
@@ -733,49 +813,5 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
             timeout_ms,
         )
         .await
-    }
-}
-
-/// # isoSPI break recovery
-///
-/// Helpers for routing around a break in the daisy chain.
-impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
-    /// Splits the chain at `chip`. Chips `0..chip` will be on Line A, and chips `chip..N` will be on Line B.
-    ///
-    /// This sets the `COMM_BK` bit for the two chips on either side of the new boundary point. See
-    /// the "COMMUNICATION BREAK" section on page 53 of the datasheet.
-    ///
-    /// Note: `OnLineA(0)` puts all chips on Line B and `OnLineA(N)` puts all chips on Line A, so for those
-    /// specific inputs, no boundary is set and no COMM_BK is set.
-    /// 
-    /// Other probably more important note: If this function returns an error, the split state (both in software and in hardware)
-    /// are not guaranteed to be valid. If the SPI transactions carrying the COMM_BK commands fail, it isn't
-    /// really possible for this function to tell if the COMM_BK commands were successfully recieved by the chips or not. So, the software state
-    /// will kind of be in limbo. As such, it is the caller's responsibility to have some kind of recovery routine for when this
-    /// function returns an error. Said recovery routine should probably not end until this function returns Ok(()), since only then is
-    /// the state guaranteed as valid.
-    pub(crate) async fn split_at(&mut self, chip: OnLineA) -> Result<(), Error<SPI::Error>> {
-        use crate::chip::registers::config_a::types::CommunicationBreak;
-
-        self.set_split(chip)?;
-
-        // DO A READ-MODIFY-WRITE OF CONFIGA:
-
-        // for the "read" part of the read-modify-write, we are using the cached config_a we track in self
-        // technically it probably would be more fullproof to just read the config_a states directly from what they
-        // are on the chips right now, but that would use an additional SPI transaction that itself could be another point
-        // of failure, especially since we are attempting to recover rn
-        let mut configs: [ConfigA; N] = core::array::from_fn(|i| self.config_a[i].unwrap_or(ConfigA::new()));
-
-        let chip: usize = chip.into();
-
-        if chip > 0 && chip < N {
-            configs[chip] = configs[chip].with_comm_bk(CommunicationBreak::Enable);
-            configs[chip - 1] = configs[chip - 1].with_comm_bk(CommunicationBreak::Enable);
-        }
-
-        self.write(&configs).await?;
-
-        Ok(())
     }
 }

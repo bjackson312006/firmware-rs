@@ -11,7 +11,7 @@ use crate::{
 };
 use super::{
     api::{
-        Api, ChipState, OnLineA, Responses,
+        Api, ChipState, OnLineA, Responses, writeables
     },
     diagnostics::{ChipStateDiagnostics, TimingDiagnostics},
     accumulator::{Accumulator, UpdateResult},
@@ -20,7 +20,7 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 use core::cell::Cell;
 
 /// Configuration parameters for the Service. This also includes constant defaults.
-pub mod config {
+pub mod service_config {
     /// Default value for [ServiceConfig::service_frequency_ms].
     pub const SERVICE_FREQUENCY_MS: u64 = 300;
     /// Default value for [ServiceConfig::segment_isospi_eval_period_ms].
@@ -132,35 +132,25 @@ pub mod config {
     }
 }
 
-/// Module governing the register groups the application is allowed to write directly.
-pub mod writeables {
-    use super::super::super::{
-        chip::registers::{
-            WritableGroup,
-            clear,
-            pwm,
-            comm
-        }
-    };
-    
-    /// A writable group the application is allowed to write directly.
-    ///
-    /// Config A and Config B are excluded on purpose, since the Service owns them. You need to
-    /// use the dedicated `set_configa()` and `set_configb()` methods on `Service`.
-    #[diagnostic::on_unimplemented(
-        message = "`{Self}` cannot be written through `Service::write()`",
-        label = "this register group is owned by the Service",
-        note = "use `Service::config_a()` or `Service::config_b()` instead"
-    )]
-    pub trait AppWritableGroup: WritableGroup {}
-    impl AppWritableGroup for clear::ClearFlags {}
-    impl AppWritableGroup for pwm::PwmA {}
-    impl AppWritableGroup for pwm::PwmB {}
-    impl AppWritableGroup for comm::WriteCommI2c {}
-    impl AppWritableGroup for comm::WriteCommSpi {}
-}
-
 use super::diagnostics::ServiceDiagnostics;
+
+/// State of the Service in regards to startup, corresponding to the `on_startup` closure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StartupState {
+    /// Startup is not complete yet. The Service will call the `on_startup` closure every cycle
+    /// until this transitions to `Complete`.
+    /// 
+    /// This is the default state at boot time. This is also the state following an isoSPI break
+    /// or sleep recovery.
+    Incomplete,
+    /// Startup finished with no errors.
+    Complete,
+}
+impl StartupState {
+    /// Whether or not this is `StartupState::Incomplete`.
+    pub const fn is_incomplete(&self) -> bool { matches!(self, StartupState::Incomplete) }
+}
 
 pub struct Service<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> {
     api: embassy_sync::mutex::Mutex<MUTEX, Api<SPI, N>>,
@@ -170,52 +160,67 @@ pub struct Service<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> {
     /// construction time. The fields are all public tho so the user can declare the
     /// config with the nice declarative syntax. Just internally, service.rs isn't supposed to
     /// modify the config after we store it
-    config: config::ServiceConfig,
+    service_config: service_config::ServiceConfig,
+}
+
+/// Chip configuration methods.
+impl <MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
+    /// Lets you configure the ConfigA register.
+    pub async fn set_configa(&self, configs: &[ConfigA; N]) -> Result<(), Error<SPI::Error>> {
+        let mut api = self.api.lock().await;
+        api.set_configa(configs).await
+    }
+
+    /// Lets you configure the ConfigB register.
+    pub async fn set_configb(&self, configs: &[ConfigB; N]) -> Result<(), Error<SPI::Error>> {
+        let mut api = self.api.lock().await;
+        api.set_configb(configs).await
+    }
 }
 
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// Creates a new service.
-    pub const fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>, config: config::ServiceConfig) -> Self {
+    /// ### Parameters
+    /// - `line_a`: `Line` instance representing Line A.
+    /// - `line_b`: `Line` instance representing Line B.
+    /// - `service_config`: High-level service configuration settings in regards to how it runs.
+    pub const fn new(line_a: Line<SPI, N>, line_b: Line<SPI, N>, service_config: service_config::ServiceConfig) -> Self {
         Self {
             api: embassy_sync::mutex::Mutex::new(Api::new(line_a, line_b)),
             diagnostics: embassy_sync::blocking_mutex::Mutex::new(Cell::new(None)),
-            config,
+            service_config,
         }
     }
 
-    /// Runs the service.
+    /// Runs the Service. This will provide the cycle's `ServiceDiagnostics` to `on_diagnostics` each time.
     /// 
-    /// This function will never return and is intended to be ran in a
-    /// dedicated task.
+    /// # PARAMETERS
+    /// ### `on_diagnostics`:
+    /// This is a closure that provides a read-only `ServiceDiagnostics`, which reports various diagnostics each time the service runs.
+    /// The Service calls this closure every cycle. 
     /// 
-    /// See `run_with_diagnostics()` if you want to do something with the `ServiceDiagnostics` on
-    /// every cycle, like reporting them over CAN.
-    pub async fn run(&self) -> ! {
-        self.run_with_diagnostics(async |_| {}).await
-    }
-
-    /// Runs the service, handing the cycle's `ServiceDiagnostics` to `on_diagnostics` each time.
-    /// 
-    /// This function will never return and is intended to be ran in a
-    /// dedicated task. Use `run()` instead if you don't need the diagnostics.
-    /// 
-    /// This is like `run()`, but it allows you to read diagnostic data from each loop of the service.
-    /// You can use this to send a CAN message with the diagnostic data every time the service runs:
-    /// ```rust,no_run
-    /// service.run_with_diagnostics(async |diagnostics| {
-    ///     let _ = can_sender.try_send(function_that_turns_a_diagnostics_into_a_can_frame(diagnostics));
-    /// }).await
-    /// ```
-    /// 
-    /// Note: you can still access the diagnostics via the `.diagnostics()` method on `Service`, but this closure
+    /// You can still access the diagnostics via the `.diagnostics()` method on `Service`, but this closure
     /// is useful if you want to access the diagnostics and run subsequent code at the same exact frequency the service
-    /// is running (makes timing easier sometimes)
+    /// is running (makes timing easier sometimes).
     /// 
-    /// Other note: Whatever you put in the closure can affect the frequency of the service if there's a lot
-    /// of awaiting going on
-    pub async fn run_with_diagnostics(&self, mut on_diagnostics: impl AsyncFnMut(&ServiceDiagnostics<N>)) -> ! {
+    /// Also, whatever you put in the closures can affect the frequency of the service if there's a lot
+    /// of awaiting going on.
+    /// 
+    /// ### `on_startup`:
+    /// This is a closure that provides an `Api` for a startup routine. You are able to dispatch any commands/configs you want for your startup profile here. It is recommended to set ConfigA/ConfigB here. This closure will
+    /// be invoked at boot time, and any time the system needs to be re-initialized following a sleep or isoSPI recovery.
+    /// 
+    /// This closure must return a `StartupState`. This allows the application to inform the Service of the outcome of the startup logic. If you return `ServiceState::Complete`, the Service will
+    /// treat startup as finished, and will not call `on_startup` again unless sleep detection/isoSPI recovery occurs. If you return `ServiceState::Incomplete`, the Service will consider startup as not being finished
+    /// yet, and will try calling `on_startup` again on the next cycle. The Service will continue calling `on_startup` on each cycle until it returns `ServiceState::Complete`.
+    /// 
+    /// It's ultimately up to the application to decide what they consider `Complete` versus `Incomplete` startup. Generally, if a SPI error or something came back during startup and your commands weren't actually written, it probably counts as
+    /// StartupState::Incomplete.
+    /// 
+    /// Also, the StartupState from each service cycle is reported inside the diagnostics.
+    pub async fn run(&self, mut on_diagnostics: impl AsyncFnMut(&ServiceDiagnostics<N>), mut on_startup: impl AsyncFnMut(&mut Api<SPI, N>) -> StartupState) -> ! {
         // The runner is the only thing that uses this so it doesn't need to be part of `Service`.
-        let mut accumulator = Accumulator::<N>::new(self.config);
+        let mut accumulator = Accumulator::<N>::new(self.service_config);
 
         let mut sleep_detection_spi_error_count: usize = 0;
         let mut cycles_count: usize = 0;
@@ -228,6 +233,8 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut max_work = Duration::MIN; // the highest time we have observed the work of the service loop taking
 
         let mut diagnostics: ServiceDiagnostics<N>;
+
+        let mut startup_state = StartupState::Incomplete;
 
         loop {
             let loop_started_timestamp = Instant::now(); // timestamp at the start of loop
@@ -246,12 +253,19 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
                 // AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
 
+                // if we are still in StartupState::Incomplete, we need to call on_startup
+                if startup_state.is_incomplete() {
+                    startup_state = on_startup(&mut api).await;
+                }
+
                 // this should run first so the sleep detection reads count towards the accumulator update break detection
                 match self.handle_sleep_detection(&mut api).await {
                     Ok(result) => match result {
                         SleepDetectionResult::SleepDetected => {
-                            // sleep was detected to we need to start up a PEC mask
+                            // sleep was detected so we need to start up a PEC mask
                             accumulator.set_masked();
+                            // we also must call on_startup
+                            startup_state = on_startup(&mut api).await;
                         },
                         SleepDetectionResult::SleepNotDetected => {
                             // don't need to do anything since this is normal
@@ -286,6 +300,9 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                         };
                         // report back to the accumulator if the split was successful or not so it know if it needs to keep trying or can move on
                         accumulator.was_split_applied(applied);
+
+                        // no matter what if a break is detected, we have to re-init everything (this is what tsecu-shepherd does)
+                        startup_state = on_startup(&mut api).await;
                     },
                     UpdateResult::Okay => {},
                 }
@@ -301,7 +318,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                 diagnostics = ServiceDiagnostics {
                     accumulator_diagnostics: accumulator_diagnostics,
                     timing_diagnostics: TimingDiagnostics {
-                        period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: self.config.service_frequency_ms,
+                        period, max_period, work, max_work, lock_wait, max_lock_wait, service_frequency: self.service_config.service_frequency_ms,
                     },
                     chip_state_diagnostics: ChipStateDiagnostics {
                         // this calls `*api.chips()` again instead of just using the already-read `chips`
@@ -314,12 +331,13 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     sleep_detection_spi_error_count,
                     break_detection_spi_error_count,
                     cycles_count,
-                    segment_isospi_max_split_attempts: self.config.segment_isospi_max_split_attempts,
-                    segment_isospi_max_failed_verification_attempts: self.config.segment_isospi_max_failed_verification_attempts,
+                    segment_isospi_max_split_attempts: self.service_config.segment_isospi_max_split_attempts,
+                    segment_isospi_max_failed_verification_attempts: self.service_config.segment_isospi_max_failed_verification_attempts,
                     line_a_error_count: api.line_a_error_count,
                     most_recent_line_a_error: api.most_recent_line_a_error,
                     line_b_error_count: api.line_b_error_count,
                     most_recent_line_b_error: api.most_recent_line_b_error,
+                    startup_state: startup_state,
                 };
 
                 // update service diagnostics
@@ -329,7 +347,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
             // the mutex gaurd is dropped by this point! so we can call the closure
             on_diagnostics(&diagnostics).await;
 
-            Timer::after(Duration::from_millis(self.config.service_frequency_ms)).await
+            Timer::after(Duration::from_millis(self.service_config.service_frequency_ms)).await
         }
     }
 
@@ -512,12 +530,6 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
         // Sleep resets every register to its default. so we need to put back what the application last asked for.
         if any_slept {
-            let config_a: [ConfigA; N] = core::array::from_fn(|i| api.config_a[i].unwrap_or(ConfigA::new()));
-            api.write(&config_a).await?;
-
-            let config_b: [ConfigB; N] = core::array::from_fn(|i| api.config_b[i].unwrap_or(ConfigB::new()));
-            api.write(&config_b).await?;
-
             // write the clears
             api.write(&clears).await?;
 
