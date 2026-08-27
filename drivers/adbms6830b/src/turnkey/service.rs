@@ -7,7 +7,7 @@ use crate::{
         commands, registers::{ReadableGroup, WritableGroup, config_a::ConfigA, config_b::ConfigB},
     }, line::{
         Error, Line
-    },
+    }, turnkey::service::writeables::AppWritableGroup,
 };
 use super::{
     api::{
@@ -130,6 +130,34 @@ pub mod config {
             }
         }
     }
+}
+
+/// Module governing the register groups the application is allowed to write directly.
+pub mod writeables {
+    use super::super::super::{
+        chip::registers::{
+            WritableGroup,
+            clear,
+            pwm,
+            comm
+        }
+    };
+    
+    /// A writable group the application is allowed to write directly.
+    ///
+    /// Config A and Config B are excluded on purpose, since the Service owns them. You need to
+    /// use the dedicated `set_configa()` and `set_configb()` methods on `Service`.
+    #[diagnostic::on_unimplemented(
+        message = "`{Self}` cannot be written through `Service::write()`",
+        label = "this register group is owned by the Service",
+        note = "use `Service::config_a()` or `Service::config_b()` instead"
+    )]
+    pub trait AppWritableGroup: WritableGroup {}
+    impl AppWritableGroup for clear::ClearFlags {}
+    impl AppWritableGroup for pwm::PwmA {}
+    impl AppWritableGroup for pwm::PwmB {}
+    impl AppWritableGroup for comm::WriteCommI2c {}
+    impl AppWritableGroup for comm::WriteCommSpi {}
 }
 
 use super::diagnostics::ServiceDiagnostics;
@@ -345,7 +373,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     }
 
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
-    pub async fn write<G: WritableGroup>(&self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
+    pub async fn write<G: writeables::AppWritableGroup>(&self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
         let mut api = self.api.lock().await;
         api.write(groups).await
     }
