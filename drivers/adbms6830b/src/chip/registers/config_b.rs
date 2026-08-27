@@ -70,6 +70,7 @@ pub mod types {
     /// 
     /// Note: Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V (VUV is signed two's complement).
     #[bitfield(u16, defmt = cfg(feature = "defmt"))]
+    #[derive(PartialEq, Eq)]
     pub struct UndervoltageThreshold {
         /// Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. Corresponds to `VUV[11:0]`.
         #[bits(12, default = 0x800)]    pub value: u16,
@@ -109,6 +110,7 @@ pub mod types {
     /// 
     /// Note: Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V (VOV is signed two's complement).
     #[bitfield(u16, defmt = cfg(feature = "defmt"))]
+    #[derive(PartialEq, Eq)]
     pub struct OvervoltageThreshold {
         /// Cell overvoltage threshold = VOV * 16 * 150 uV + 1.5 V. Corresponds to `VOV[11:0]`.
         #[bits(12, default = 0x7FF)]     pub value: u16,
@@ -178,6 +180,7 @@ pub mod types {
     /// - If `DischargeTimerRange::ShortRange`, minutes = increments() * 1 (since 1 increment = 1 minute)
     /// - If `DischargeTimerRange::LongRange`, minutes = increments() * 16 (since 1 increment = 16 minutes)
     #[bitfield(u8, defmt = cfg(feature = "defmt"))]
+    #[derive(PartialEq, Eq)]
     pub struct DischargeTimerStatus {
         /// Number of increments remaining on the timer. This value can range between 0 and 63. Defaults to 0.
         /// 
@@ -222,6 +225,7 @@ pub mod types {
     read = Some(commands::config::rdcfgb().frame()),
 )]
 #[bitfield(u64, defmt = cfg(feature = "defmt"))]
+#[derive(PartialEq, Eq)]
 pub struct ConfigB {
     /// UV threshold/comparison voltage (VUV). Cell undervoltage threshold = VUV x 16 x 150uV + 1.5V. 12-bit field. Corresponds to `VUV[11:0]`.
     #[bits(12, default = types::UndervoltageThreshold::DEFAULT)]  pub vuv: types::UndervoltageThreshold,

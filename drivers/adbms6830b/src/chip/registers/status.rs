@@ -396,6 +396,7 @@ pub mod types {
         /// Because of that, the lower 6 bits (`CT[4:0]`) and upper 5 bits (`CT[10:6]`) need to be represented separately for the initial
         /// SPI read and then combined into a real `ConversionsCounter` value.
         #[bitfield(u8, defmt = cfg(feature = "defmt"))]
+        #[derive(PartialEq, Eq)]
         pub struct ConversionsCounterUpper {
             /// (CT[10:6]).
             /// 
@@ -415,6 +416,7 @@ pub mod types {
         /// Because of that, the lower 6 bits (`CT[5:0]`) and upper 5 bits (`CT[10:6]`) need to be represented separately for the initial
         /// SPI read and then combined into a real `ConversionsCounter` value.
         #[bitfield(u8, defmt = cfg(feature = "defmt"))]
+        #[derive(PartialEq, Eq)]
         pub struct ConversionsCounterLower {
             /// (CT[5:0]).
             /// 
@@ -435,6 +437,7 @@ pub mod types {
         /// increments four times per sample. Can be read coherently to CADC results using the SNAP command to identify
         /// new or old samples. Coherency to SADC results is guaranteed only when CCTS is not 31, 32, 63, 64, …
         #[bitfield(u16, defmt = cfg(feature = "defmt"))]
+        #[derive(PartialEq, Eq)]
         pub struct ConversionsSubcounter {
             /// The 2-bit conversions subcounter value.
             #[bits(2, default = 0)]        pub value: u8,
@@ -489,6 +492,7 @@ pub mod types {
         /// If `OSCCHK == Okay` (meaning no OSCCHK failure occured), the `count()` value on this type indicates the most recently acquired oscillator count.
         /// If `OSCCHK == OutOfRangeOscillatorDetected` (meaning a OSCCHK failure occured), the `count()` value on this type indicates the first failing counter value.
         #[bitfield(u8, defmt = cfg(feature = "defmt"))]
+        #[derive(PartialEq, Eq)]
         pub struct OscillatorCheckCounter {
             /// The 8-bit oscillator check counter.
             #[bits(8, default = 0, access = RO)]        pub count: u8,
@@ -526,6 +530,7 @@ pub mod types {
         /// a constant/hardcoded field in the hardware that never changes. Actually that probably is why. Nonetheless for software purposes I
         /// am making this field default to 0. Probably see Table 110 on page 74 of the datasheet if care
         #[bitfield(u8, defmt = cfg(feature = "defmt"))]
+        #[derive(PartialEq, Eq)]
         pub struct RevisionCode {
             /// The 4-bit device revision code.
             #[bits(4, default = 0, access = RO)]        pub code: u8,

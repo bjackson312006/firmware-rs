@@ -166,8 +166,9 @@ fn register_group_impl(
 ) -> syn::Result<TokenStream2> {
     let name = input.ident.clone();
 
-    // Build the auto-generated "### Fields" documentation from the struct's fields.
-    let fields_doc = {
+    // Build the auto-generated "### Fields" documentation from the struct's fields, and collect the
+    // same field list for the mismatch reporting below.
+    let (fields_doc, field_idents, field_names) = {
         let Data::Struct(data) = &input.data else {
             return Err(syn::Error::new_spanned(
                 &name,
@@ -182,6 +183,8 @@ fn register_group_impl(
         };
 
         let mut doc = String::from("\n\n### Fields\n");
+        let mut idents = Vec::new();
+        let mut names = Vec::new();
         for field in &fields.named {
             let ident = field.ident.as_ref().expect("named field");
             let ident_str = ident.to_string();
@@ -194,8 +197,10 @@ fn register_group_impl(
             doc.push_str(&format!(
                 "- `{ident_str}`: [{display}][{target}], {field_doc}\n"
             ));
+            idents.push(ident.clone());
+            names.push(ident_str);
         }
-        doc
+        (doc, idents, names)
     };
 
     // The register group needs to be a `#[bitfield(uN)]`, so we can grab the backing type etc
@@ -308,6 +313,47 @@ fn register_group_impl(
         }
     };
 
+    // Field-level mismatch reporting. Reserved/padding fields are excluded (they were filtered out
+    // when the field list was collected), so this only reports differences that actually mean
+    // something, unlike `PartialEq` which compares the raw backing bits.
+    let compare_impl = quote! {
+        impl #name {
+            /// Returns the name of the first field whose value differs from `other`, or `None` if
+            /// every field matches.
+            ///
+            /// Reserved and padding bits are not compared, so a difference reported here is always a
+            /// real difference in configuration. This is the non-`defmt` counterpart to
+            /// `log_mismatches`.
+            pub fn first_mismatch(&self, other: &Self) -> Option<&'static str> {
+                #(
+                    if self.#field_idents() != other.#field_idents() {
+                        return Some(#field_names);
+                    }
+                )*
+                None
+            }
+
+            /// Logs every field whose value differs from `other`, reporting both values.
+            ///
+            /// `self` is logged as the expected value and `other` as the actual one, so the usual
+            /// call is `expected.log_mismatches(&read_back)`. Reserved and padding bits are not
+            /// compared. Logs nothing when every field matches.
+            #[cfg(feature = "defmt")]
+            pub fn log_mismatches(&self, other: &Self) {
+                #(
+                    if self.#field_idents() != other.#field_idents() {
+                        ::defmt::error!(
+                            "  {}: expected {}, got {}",
+                            #field_names,
+                            self.#field_idents(),
+                            other.#field_idents(),
+                        );
+                    }
+                )*
+            }
+        }
+    };
+
     let writable_impl = match &write_command {
         Some(cmd) => quote! {
             impl #writable for #name {
@@ -332,6 +378,7 @@ fn register_group_impl(
         #input
 
         #group_impl
+        #compare_impl
         #writable_impl
         #readable_impl
     })

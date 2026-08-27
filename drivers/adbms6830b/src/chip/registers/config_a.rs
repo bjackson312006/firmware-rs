@@ -210,6 +210,7 @@ pub mod types {
     read = Some(commands::config::rdcfga().frame()),
 )]
 #[bitfield(u64, defmt = cfg(feature = "defmt"))]
+#[derive(PartialEq, Eq)]
 pub struct ConfigA {
     // CFGAR0! first byte of the register group.
     /// C-ADC vs. S-ADC comparison voltage theshold. Three-bit field.
