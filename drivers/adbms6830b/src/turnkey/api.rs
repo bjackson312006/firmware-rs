@@ -264,10 +264,15 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     fn overwrite_configa_with_split(&mut self, configs: &mut [ConfigA; N]) {
         use crate::chip::registers::config_a::types::CommunicationBreak;
 
-        let chip: usize = self.split().into();
-        if chip > 0 && chip < N {
-            configs[chip] = configs[chip].with_comm_bk(CommunicationBreak::Enable);
-            configs[chip - 1] = configs[chip - 1].with_comm_bk(CommunicationBreak::Enable);
+        let boundary: usize = self.split().into();
+        let split_active = boundary > 0 && boundary < N;
+        for (i, config) in configs.iter_mut().enumerate() {
+            let bk = if split_active && (i == boundary || i == boundary - 1) {
+                CommunicationBreak::Enable
+            } else {
+                CommunicationBreak::Disable
+            };
+            *config = config.with_comm_bk(bk);
         }
     }
 
@@ -509,7 +514,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// 
     /// This will also update the cached ConfigA value inside Api. Also, it will overwrite whatever
     /// COMM_BK value you have provied with whatever is determined by the current Line split.
-    pub(crate) async fn set_configa(&mut self, configs: &[ConfigA; N]) -> Result<(), Error<SPI::Error>> {
+    pub async fn set_configa(&mut self, configs: &[ConfigA; N]) -> Result<(), Error<SPI::Error>> {
         let mut configs = *configs;
         self.overwrite_configa_with_split(&mut configs);
         self.config_a = configs;
@@ -517,13 +522,13 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Sets ConfigB.
-    pub(crate) async fn set_configb(&mut self, configs: &[ConfigB; N]) -> Result<(), Error<SPI::Error>> {
+    pub async fn set_configb(&mut self, configs: &[ConfigB; N]) -> Result<(), Error<SPI::Error>> {
         // this function does nothing special right now. but probably keep it here in case we need to cache configb in the future
         self.private_write(&configs).await
     }
     
     /// Writes one register group per chip. `groups` is indexed in logical chip order.
-    pub(crate) async fn write<G: writeables::AppWritableGroup>(&mut self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
+    pub async fn write<G: writeables::AppWritableGroup>(&mut self, groups: &[G; N]) -> Result<(), Error<SPI::Error>> {
         self.private_write(groups).await
     }
 
@@ -567,7 +572,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Sends a command to every chip on both lines.
-    pub(crate) async fn command(&mut self, command: Command) -> Result<(), Error<SPI::Error>> {
+    pub async fn command(&mut self, command: Command) -> Result<(), Error<SPI::Error>> {
         let line_a = self.command_line(LineId::A, command).await;
         let line_b = self.command_line(LineId::B, command).await;
 
@@ -611,7 +616,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     ///
     /// This does not wait! It just returns a bool, so you need to keep polling it until it returns true (indicating that every chip has finished).
     /// If you want that done automatically for you, see the `*_autoconvert()` helpers.
-    pub(crate) async fn poll(&mut self, command: Command) -> Result<bool, Error<SPI::Error>> {
+    pub async fn poll(&mut self, command: Command) -> Result<bool, Error<SPI::Error>> {
         let line_a = self.poll_line(LineId::A, command).await;
         let line_b = self.poll_line(LineId::B, command).await;
         Ok(line_a? && line_b?)
@@ -651,10 +656,10 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         result
     }
 
-    /// CRATE PRIVATE! Wakes every chip on both lines out of the idle or sleep state.
+    /// Wakes every chip on both lines out of the idle or sleep state.
     ///
-    /// Chips that were asleep come back with their counters at 0. This is not detected automatically!
-    pub(crate) async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
+    /// Chips that were asleep come back with their counters at 0.
+    pub async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
         let (count_a, count_b) = (self.count(LineId::A), self.count(LineId::B));
 
         let result_a = self.line_a.wakeup(count_a).await;
@@ -741,7 +746,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Starts a cell voltage conversion (ADCV) and waits for it to finish.
-    pub(crate) async fn adcv_autoconvert(
+    pub async fn adcv_autoconvert(
         &mut self,
         redundancy: commands::adc::AdcvRedundancy,
         acquisition: commands::adc::AutoAcquisition,
@@ -764,7 +769,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Starts an S-ADC conversion (ADSV) and waits for it to finish.
-    pub(crate) async fn adsv_autoconvert(
+    pub async fn adsv_autoconvert(
         &mut self,
         acquisition: commands::adc::AutoAcquisition,
         open_wire: commands::adc::OpenWire,
@@ -784,7 +789,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     /// This doesn't account for time added by SOAKON (see Config A). It should still work if SOAKON is
     /// enabled, it just might not be as efficient since it will poll at the same frequency as when SOAKON
     /// is not enabled.
-    pub(crate) async fn adax_autoconvert(
+    pub async fn adax_autoconvert(
         &mut self,
         open_wire: commands::adc::OpenWireAux,
         pull: commands::adc::Pull,
@@ -801,7 +806,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Starts an AUX2 conversion (ADAX2) and waits for it to finish.
-    pub(crate) async fn adax2_autoconvert(
+    pub async fn adax2_autoconvert(
         &mut self,
         channel: commands::adc::Aux2InputSelection,
         timeout_ms: u64,
