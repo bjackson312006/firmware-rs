@@ -573,8 +573,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
 
     /// CRATE PRIVATE! Wakes every chip on both lines out of the idle or sleep state.
     ///
-    /// Chips that were asleep come back with their counters at 0. This is not detected automatically! So, it is a
-    /// good idea to follow this with a read and `sync_command_counters()`.
+    /// Chips that were asleep come back with their counters at 0. This is not detected automatically!
     pub(crate) async fn wakeup(&mut self) -> Result<(), Error<SPI::Error>> {
         let (count_a, count_b) = (self.count(LineId::A), self.count(LineId::B));
 
