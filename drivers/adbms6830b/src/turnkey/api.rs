@@ -506,6 +506,7 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
     }
 
     /// Read-only access to the cached ConfigA.
+    #[allow(dead_code)]
     pub(crate) fn configa(&self) -> &[ConfigA; N] {
         &self.config_a
     }
