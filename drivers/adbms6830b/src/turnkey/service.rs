@@ -191,7 +191,11 @@ impl <MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 pub enum StartupReason {
     /// `on_startup` has been called because we are waking up from sleep, either because we are booting up or beacuse we have detected sleep at runtime.
     /// 
-    /// You probably shouldn't issue the SRST command if this reason is given, since the Service will keep re-starting (since it detects sleep).
+    /// Note that this is triggered if any chip at all is discovered as sleeping during a service cycle. It's technically possible that only one or two chips were sleeping, while
+    /// the others were fine.
+    ///
+    /// WARNING: If your `on_startup` routine sends the SRST command, you must make sure that you clear the SLEEP flag, or else the Service will
+    /// keep detecting sleep as it runs and triggering infinite startup routines.
     FromSleep,
     /// `on_startup` has been called because an isoSPI break was detected, so all chips are getting re-initialized.
     IsospiBreak,
