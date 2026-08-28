@@ -1,5 +1,10 @@
 //! Service for ADBMS6830B.
 
+// u_TODO for tomorrow: 
+// add a diagnostic for the entire configA register maybe. just to be sure.
+// also add detect_num_chips diagnostics for each line just because it would be interesting to see
+// maybe even add a .start() flag and a .pause() flag for the service so the sleep recovery stuff can actually be tested, and maybe even low power/sleeo mode could be used if gaf
+
 use embassy_time::{Timer, Duration, Instant};
 use embedded_hal_async::spi::SpiDevice;
 use crate::{
@@ -7,7 +12,7 @@ use crate::{
         commands, registers::{ReadableGroup, config_a::ConfigA, config_b::ConfigB},
     }, line::{
         Error, Line
-    },
+    }, turnkey::diagnostics::LineDiagnostics,
 };
 use super::{
     api::{
@@ -352,6 +357,10 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     UpdateResult::Okay => {},
                 }
 
+                use super::api::LineId;
+                let line_a_chip_detection = api.detect_chips(LineId::A).await.map_err(|err| err.to_kind());
+                let line_b_chip_detection = api.detect_chips(LineId::B).await.map_err(|err| err.to_kind());
+
                 // END AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
 
                 let work = Instant::now().saturating_duration_since(locked_at_timestamp);
@@ -372,16 +381,20 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                         chip_state: *api.chips(),
                         chip_line: core::array::from_fn(|i| api.line_of(i)),
                     },
+                    line_diagnostics: LineDiagnostics {
+                        line_a_error_count: api.line_a_error_count,
+                        most_recent_line_a_error: api.most_recent_line_a_error,
+                        line_b_error_count: api.line_b_error_count,
+                        most_recent_line_b_error: api.most_recent_line_b_error,
+                        line_a_chips_detected_count: line_a_chip_detection,
+                        line_b_chips_detected_count: line_b_chip_detection,
+                    },
                     split: api.split(),
                     sleep_detection_spi_error_count,
                     break_detection_spi_error_count,
                     cycles_count,
                     segment_isospi_max_split_attempts: self.service_config.segment_isospi_max_split_attempts,
                     segment_isospi_max_failed_verification_attempts: self.service_config.segment_isospi_max_failed_verification_attempts,
-                    line_a_error_count: api.line_a_error_count,
-                    most_recent_line_a_error: api.most_recent_line_a_error,
-                    line_b_error_count: api.line_b_error_count,
-                    most_recent_line_b_error: api.most_recent_line_b_error,
                     startup_reason: startup_reason,
                     startup_result: startup_result,
                     startups_count: startups_count,

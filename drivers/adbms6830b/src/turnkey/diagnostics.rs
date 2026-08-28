@@ -313,6 +313,78 @@ impl<const N: usize> ChipStateDiagnostics<N> {
     pub const fn chip_line(&self) -> [LineId; N] { self.chip_line }
 }
 
+/// Diagnostics related to the two Lines.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct LineDiagnostics {
+    /// Total number of times Line A has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub(crate) line_a_error_count: usize,
+    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Total number of times Line B has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub(crate) line_b_error_count: usize,
+    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Number of chips detected to be reachable from Line A. This will return and error if the reads was not successful.
+    /// 
+    /// Note: "REACHABLE" is the main word here. This data comes from the `detect_chips()` function, not from any of the isoSPI recovery
+    /// accumulator state logic. This value is an oneshot detection of the chips reachable on a Line, and doesn't reflect anything about the
+    /// official line split state. It also may fluctuate between Service cycles, especially if there is noise causing PEC errors.
+    pub(crate) line_a_chips_detected_count: Result<usize, Error<embedded_hal_async::spi::ErrorKind>>,
+    /// Number of chips detected to be reachable from Line B. This will return an error if the reads was not successful.
+    /// 
+    /// Note: "REACHABLE" is the main word here. This data comes from the `detect_chips()` function, not from any of the isoSPI recovery
+    /// accumulator state logic. This value is an oneshot detection of the chips reachable on a Line, and doesn't reflect anything about the
+    /// official line split state. It also may fluctuate between Service cycles, especially if there is noise causing PEC errors.
+    pub(crate) line_b_chips_detected_count: Result<usize, Error<embedded_hal_async::spi::ErrorKind>>,
+}
+impl LineDiagnostics {
+    /// Total number of times Line A has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub const fn line_a_error_count(&self) -> usize { self.line_a_error_count }
+    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub const fn most_recent_line_a_error(&self) ->  Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_a_error }
+    /// Total number of times Line B has failed with a SPI::Error.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub const fn line_b_error_count(&self) -> usize { self.line_b_error_count }
+    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
+    /// 
+    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
+    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
+    pub const fn most_recent_line_b_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_b_error }
+    /// Number of chips detected to be reachable from Line A. This will return and error if the reads was not successful.
+    /// 
+    /// Note: "REACHABLE" is the main word here. This data comes from the `detect_chips()` function, not from any of the isoSPI recovery
+    /// accumulator state logic. This value is an oneshot detection of the chips reachable on a Line, and doesn't reflect anything about the
+    /// official line split state. It also may fluctuate between Service cycles, especially if there is noise causing PEC errors.
+    pub const fn line_a_chips_detected_count(&self) -> Result<usize, Error<embedded_hal_async::spi::ErrorKind>> { self.line_a_chips_detected_count }
+    /// Number of chips detected to be reachable from Line B. This will return and error if the reads was not successful.
+    /// 
+    /// Note: "REACHABLE" is the main word here. This data comes from the `detect_chips()` function, not from any of the isoSPI recovery
+    /// accumulator state logic. This value is an oneshot detection of the chips reachable on a Line, and doesn't reflect anything about the
+    /// official line split state. It also may fluctuate between Service cycles, especially if there is noise causing PEC errors.
+    pub const fn line_b_chips_detected_count(&self) -> Result<usize, Error<embedded_hal_async::spi::ErrorKind>> { self.line_b_chips_detected_count }
+}
+
 /// Diagnostics for a Service.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -323,6 +395,8 @@ pub struct ServiceDiagnostics<const N: usize> {
     pub(crate) timing_diagnostics: TimingDiagnostics,
     /// Chip state diagnostics.
     pub(crate) chip_state_diagnostics: ChipStateDiagnostics<N>,
+    /// /// Diagnostics related to the two Lines.
+    pub(crate) line_diagnostics: LineDiagnostics,
     /// Number of times sleep detection has failed due to a SPI::Error.
     pub(crate) sleep_detection_spi_error_count: usize,
     /// Number of times break detection has failed due to a SPI::Error.
@@ -346,26 +420,6 @@ pub struct ServiceDiagnostics<const N: usize> {
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
     pub(crate) segment_isospi_max_failed_verification_attempts: usize,
-    /// Total number of times Line A has failed with a SPI::Error.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub(crate) line_a_error_count: usize,
-    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub(crate) most_recent_line_a_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
-    /// Total number of times Line B has failed with a SPI::Error.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub(crate) line_b_error_count: usize,
-    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub(crate) most_recent_line_b_error: Option<Error<embedded_hal_async::spi::ErrorKind>>,
     /// Current startup state (associated with the `on_startup` closure).
     pub(crate) startup_reason: super::service::StartupReason,
     /// Most recent startup result (associated with the `on_startup` closure).
@@ -384,6 +438,8 @@ impl<const N: usize> ServiceDiagnostics<N> {
     pub const fn timing(&self) -> TimingDiagnostics { self.timing_diagnostics }
     /// Chip state diagnostics.
     pub const fn chip_state_diagnostics(&self) -> ChipStateDiagnostics<N> { self.chip_state_diagnostics }
+    /// Diagnostics related to the two Lines.
+    pub const fn line_diagnostics(&self) -> LineDiagnostics { self.line_diagnostics }
     /// Number of times sleep detection has failed due to a SPI::Error.
     pub const fn sleep_detection_spi_error_count(&self) -> usize { self.sleep_detection_spi_error_count }
     /// Number of times break detection has failed due to a SPI::Error.
@@ -407,26 +463,6 @@ impl<const N: usize> ServiceDiagnostics<N> {
     /// is reported as a diagnostic for convinience, and as a double-check to let you confirm that the config is what you expect
     /// it to be.
     pub const fn max_verification_attempts(&self) -> usize { self.segment_isospi_max_failed_verification_attempts }
-    /// Total number of times Line A has failed with a SPI::Error.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub const fn line_a_error_count(&self) -> usize { self.line_a_error_count }
-    /// Most recent `Error` that has occured on Line A. `None` if no errors have occured yet.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub const fn most_recent_line_a_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_a_error }
-    /// Total number of times Line B has failed with a SPI::Error.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub const fn line_b_error_count(&self) -> usize { self.line_b_error_count }
-    /// Most recent `Error` that has occured on Line B. `None` if no errors have occured yet.
-    /// 
-    /// Just to note, this refers to raw HAL-level SPI errors. It has nothing to do with PEC errors and other things
-    /// manually tracked by the service. Those are reported elsewhere in the diagnostics.
-    pub const fn most_recent_line_b_error(&self) -> Option<Error<embedded_hal_async::spi::ErrorKind>> { self.most_recent_line_b_error }
     /// Current startup reason (associated with the `on_startup` closure).
     pub const fn startup_reason(&self) -> super::service::StartupReason { self.startup_reason }
     /// Most recent startup result (associated with the `on_startup` closure).
