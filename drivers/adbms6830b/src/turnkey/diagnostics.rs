@@ -370,6 +370,12 @@ pub struct ServiceDiagnostics<const N: usize> {
     pub(crate) startup_reason: super::service::StartupReason,
     /// Most recent startup result (associated with the `on_startup` closure).
     pub(crate) startup_result: super::service::StartupResult,
+    /// Number of startups that the Service has ran so far.
+    pub(crate) startups_count: usize,
+    /// Number of times a startup was requested while a startup of another StartupReason was already active.
+    /// 
+    /// When this occurs, the Service will still be calling startups just as before, but the StartupReason will be updated.
+    pub(crate) startups_overtaken_by_another_startup_counts: usize,
 }
 impl<const N: usize> ServiceDiagnostics<N> {
     /// Diagnostics from the Service's PEC error accumulator.
@@ -425,4 +431,10 @@ impl<const N: usize> ServiceDiagnostics<N> {
     pub const fn startup_reason(&self) -> super::service::StartupReason { self.startup_reason }
     /// Most recent startup result (associated with the `on_startup` closure).
     pub const fn startup_result(&self) -> super::service::StartupResult { self.startup_result }
+    /// Number of startups that the Service has ran so far.
+    pub const fn startups_count(&self) -> usize { self.startups_count }
+    /// Number of times a startup was requested while a startup of another StartupReason was already active.
+    /// 
+    /// When this occurs, the Service will still be calling startups just as before, but the StartupReason will be updated.
+    pub const fn startups_overtaken_by_another_startup_counts(&self) -> usize { self.startups_overtaken_by_another_startup_counts }
 }

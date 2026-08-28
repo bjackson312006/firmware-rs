@@ -4,10 +4,10 @@ use embassy_time::{Timer, Duration, Instant};
 use embedded_hal_async::spi::SpiDevice;
 use crate::{
     chip::{
-        commands, registers::{ReadableGroup, WritableGroup, config_a::ConfigA, config_b::ConfigB},
+        commands, registers::{ReadableGroup, config_a::ConfigA, config_b::ConfigB},
     }, line::{
         Error, Line
-    }, turnkey::service::writeables::AppWritableGroup,
+    },
 };
 use super::{
     api::{
@@ -141,8 +141,7 @@ pub enum StartupResult {
     /// Startup is not complete yet. The Service will call the `on_startup` closure every cycle
     /// until this transitions to `Complete`.
     /// 
-    /// This is the default state at boot time. This is also the state following an isoSPI break
-    /// or sleep recovery.
+    /// This is the default state at boot time.
     Incomplete,
     /// Startup finished with no errors.
     Complete,
@@ -180,28 +179,23 @@ impl <MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
 /// Reason why the Service has invoked `on_startup`.
 /// 
-/// This is not updated every Service cycle. This is only updated either at boot, or when
-/// an
+/// This is not updated every Service cycle. This is only updated either at boot, when sleep
+/// is detected, or when isoSPI recovery occurs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StartupReason {
-    /// `on_startup` has been called because we are booting up.
-    Boot,
+    /// `on_startup` has been called because we are waking up from sleep, either because we are booting up or beacuse we have detected sleep at runtime.
+    /// 
+    /// You probably shouldn't issue the SRST command if this reason is given, since the Service will keep re-starting (since it detects sleep).
+    FromSleep,
     /// `on_startup` has been called because an isoSPI break was detected, so all chips are getting re-initialized.
     IsospiBreak,
-    /// `on_startup` has been called because sleeping chips were detected (and thus reset).
-    /// 
-    /// If `on_startup` indicates `SleepDetected` as the `StartupReason`, you should avoid issuing
-    /// the SRST command in that case (since you would be putting the chips into an infinite boot-sleep-boot-sleep loop)
-    SleepDetected,
 }
 impl StartupReason {
-    /// Indicates if this `StartupReason` is `StartupReason::Boot`.
-    pub const fn is_boot(&self) -> bool { matches!(&self, StartupReason::Boot) }
     /// Indicates if this `StartupReason` is `StartupReason::IsospiBreak`.
     pub const fn is_isospi_break(&self) -> bool { matches!(&self, StartupReason::IsospiBreak) }
-    /// Indicates if this `StartupReason` is `StartupReason::SleepDetected`.
-    pub const fn is_sleep_detected(&self) -> bool { matches!(&self, StartupReason::SleepDetected) }
+    /// Indicates if this `StartupReason` is `StartupReason::FromSleep`.
+    pub const fn is_from_sleep(&self) -> bool { matches!(&self, StartupReason::FromSleep) }
 }
 
 impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
@@ -239,9 +233,9 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     /// This closure also provides a `StartupReason`, which tells you why specifically `on_startup` was invoked by the service. This is useful in case you want to have different behavior depending
     /// on the context.
     /// 
-    /// This closure must return a `StartupResult`. This allows the application to inform the Service of the outcome of the startup logic. If you return `ServiceState::Complete`, the Service will
-    /// treat startup as finished, and will not call `on_startup` again unless sleep detection/isoSPI recovery occurs. If you return `ServiceState::Incomplete`, the Service will consider startup as not being finished
-    /// yet, and will try calling `on_startup` again on the next cycle. The Service will continue calling `on_startup` on each cycle until it returns `ServiceState::Complete`.
+    /// This closure must return a `StartupResult`. This allows the application to inform the Service of the outcome of the startup logic. If you return `StartupResult::Complete`, the Service will
+    /// treat startup as finished, and will not call `on_startup` again unless sleep detection/isoSPI recovery occurs. If you return `StartupResult::Incomplete`, the Service will consider startup as not being finished
+    /// yet, and will try calling `on_startup` again on the next cycle. The Service will continue calling `on_startup` on each cycle until it returns `StartupResult::Complete`.
     /// 
     /// It's ultimately up to the application to decide what they consider `Complete` versus `Incomplete` startup. Generally, if a SPI error or something came back during startup and your commands weren't actually written, it probably counts as
     /// StartupResult::Incomplete.
@@ -264,7 +258,13 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
         let mut diagnostics: ServiceDiagnostics<N>;
 
         let mut startup_result = StartupResult::Incomplete;
-        let mut startup_reason = StartupReason::Boot;
+        let mut startup_reason = StartupReason::FromSleep;
+
+        // counts the number of times startup has run for diagnostics
+        let mut startups_count: usize = 0;
+
+        // counts how many times a startup for another reason was triggered before the current startup could finish. for diagnostics.
+        let mut startups_overtaken_by_another_startup_counts: usize = 0;
 
         loop {
             let loop_started_timestamp = Instant::now(); // timestamp at the start of loop
@@ -277,16 +277,29 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
             {
                 let mut api = self.api.lock().await;
 
+                // helper macro for calling on_startup but also increasing the counters and stuff
+                macro_rules! call_on_startup {
+                    ($rsn:expr) => {{
+                        let rsn = $rsn;
+                        startups_count += 1;
+                        if startup_result.is_incomplete() && rsn != startup_reason {
+                            startups_overtaken_by_another_startup_counts += 1;
+                        }
+                        startup_reason = rsn;
+                        on_startup(&mut api, startup_reason).await
+                    }};
+                }
+
                 let locked_at_timestamp = Instant::now(); // timestamp at which we locked the mutex
                 let lock_wait = locked_at_timestamp.saturating_duration_since(loop_started_timestamp);
                 max_lock_wait = max_lock_wait.max(lock_wait);
 
                 // AREA WHERE WE DO THE ACTUAL WORK OF THE SERVICE LOOP
 
-                // if we are still in StartupState::Incomplete, we need to call on_startup
+                // if we are still in StartupResult::Incomplete, we need to call on_startup
                 if startup_result.is_incomplete() {
                     // startup_reason is whatever it already is, since this area is reached either on boot when it is the first Service cycle, or after a startup loop has previously been started and just failed last time
-                    startup_result = on_startup(&mut api, startup_reason).await;
+                   startup_result = call_on_startup!(startup_reason);
                 }
 
                 // this should run first so the sleep detection reads count towards the accumulator update break detection
@@ -296,8 +309,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                             // sleep was detected so we need to start up a PEC mask
                             accumulator.set_masked();
                             // we also must call on_startup
-                            startup_reason = StartupReason::SleepDetected;
-                            startup_result = on_startup(&mut api, startup_reason).await;
+                            startup_result = call_on_startup!(StartupReason::FromSleep);
                         },
                         SleepDetectionResult::SleepNotDetected => {
                             // don't need to do anything since this is normal
@@ -335,8 +347,7 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
 
                         // no matter what if a break is detected, we have to re-init everything (this is what tsecu-shepherd does)
                         // if `applied` from above is `false` this is probably a bit pointless since this will get retried anyway, however this is useful to have just in case
-                        startup_reason = StartupReason::IsospiBreak;
-                        startup_result = on_startup(&mut api, startup_reason).await;
+                        startup_result = call_on_startup!(StartupReason::IsospiBreak);
                     },
                     UpdateResult::Okay => {},
                 }
@@ -373,6 +384,8 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
                     most_recent_line_b_error: api.most_recent_line_b_error,
                     startup_reason: startup_reason,
                     startup_result: startup_result,
+                    startups_count: startups_count,
+                    startups_overtaken_by_another_startup_counts: startups_overtaken_by_another_startup_counts,
                 };
 
                 // update service diagnostics
