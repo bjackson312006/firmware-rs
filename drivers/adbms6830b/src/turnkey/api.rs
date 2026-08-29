@@ -87,13 +87,10 @@ impl ChipState {
         self.command_count
     }
 
-    /// Resets an already-initialized command counter. This is meant to be called
-    /// after a sleep state is detected.
+    /// Resets an already-initialized command counter.
     /// 
     /// ### Parameters
-    /// - `count`: The `count` you want to initialize both `expected` and `reported` to. This should
-    /// be read directly from the chip. This way, `expected` and `reported` are starting from the exact same
-    /// known state. In other words, this basically lets you start up the command counting with a blank slate.
+    /// - `count`: The `count` you want to initialize both `expected` and `reported` to.
     pub(crate) const fn reset_command_count(&mut self, count: u8) {
         self.command_count = CommandCount {
             expected: count,
@@ -110,11 +107,7 @@ impl ChipState {
     }
 
     /// Returns the number of times the command counter for this chip has
-    /// been reset due to a sleep.
-    /// 
-    /// Because this only increments when a sleep is detected, this field
-    /// can be interpereted as a "number of times a sleep has been detected" for
-    /// this chip as well.
+    /// been reset.
     pub const fn command_count_resets(&self) -> usize {
         self.command_count_resets
     }
@@ -302,6 +295,85 @@ impl<SPI: SpiDevice, const N: usize> Api<SPI, N> {
         let mut configs: [ConfigA; N] = core::array::from_fn(|i| self.config_a[i]);
         self.overwrite_configa_with_split(&mut configs);
         self.set_configa(&configs).await?;
+
+        Ok(())
+    }
+
+    /// Resets all chips to their default states and wakes them up.
+    pub async fn reset(&mut self) -> Result<(), Error<SPI::Error>> {
+        use crate::chip::registers::clear::{
+            ClearFlags,
+            types::ClearAction,
+        };
+
+        // make sure they're awake to recieve the srst command first
+        if let Err(err) = self.wakeup().await {
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: Api: in `.reset()`: Failed to call `self.wakeup()` while trying to reset chips. Error: {}", err.to_kind());
+            
+            return Err(err);
+        }
+
+        // issue SRST
+        if let Err(err) = self.command(commands::misc::srst()).await {
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: Api: in `.reset()`: Failed to issue SRST command while trying to reset chips. Error: {}", err.to_kind());
+            
+            return Err(err);
+        }
+
+        // wake them up again since we just used SRST on them
+        if let Err(err) = self.wakeup().await {
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: Api: in `.reset()`: Failed to call `self.wakeup()` after issuing SRST. Error: {}", err.to_kind());
+            
+            return Err(err);
+        }
+
+        // clear the SLEEP flag, and also the rail UV flags since wakeup from standby sets them 
+        let clear = ClearFlags::new()
+            .with_cl_sleep(ClearAction::Clear)
+            .with_cl_vauv(ClearAction::Clear)
+            .with_cl_vduv(ClearAction::Clear);
+        let clears = [clear; N];
+        if let Err(err) = self.write::<ClearFlags>(&clears).await {
+            #[cfg(feature = "defmt")]
+            defmt::error!("ADBMS6830B: Api: in `.reset()`: Failed to call `self.write()` while trying to modify ClearFlags. Error: {}", err.to_kind());
+            
+            return Err(err);
+        }
+
+        let boundary: usize = self.split().into();
+        let split_active = boundary > 0 && boundary < N;
+
+        // reset cached configA, and if a split is active, write the reset configA but with the COMM_BK bit set
+        // this returns what we should reset the command count to (normally 1, but 2 if we end up issuing the ConfigA write)
+        let expected_command_count: u8 = if split_active {
+            // if a split is active we need to re-write configA with COMM_BK. set_configa() will write a blank config, but with the COMM_BK bit set as necessary
+            if let Err(err) = self.set_configa(&[ConfigA::new(); N]).await {
+                #[cfg(feature = "defmt")]
+                defmt::error!("ADBMS6830B: Api: in `.reset()`: Failed to call `self.write()` while trying to write ConfigA to re-instate COMM_BK. Error: {}", err.to_kind());
+                
+                return Err(err);
+            }
+
+            // ClearFlags + ConfigA
+            2
+        } else {
+            // no split is active so cached configA should be blank, plus we don't need to write anything
+            self.config_a = [ConfigA::new(); N];
+
+            // just ClearFlags
+            1
+        };
+
+        // reset command counts for every chip
+        for chip in self.chips.iter_mut() {
+            // command counter should be 1 or 2 at this point, since SRST resets it to 0, wakeup() doesn't increment it, ClearFlags increments it once (ccnt = 1), and if there is an active split, ConfigA increments it again (ccnt = 2)
+            // there can't be any writes in-between this because this is &mut self, so even if ClearFlags gets .awaited another task can't do anything that raises command count
+            chip.reset_command_count(expected_command_count);
+        }
+        // the whole point of this reset() function is to reset to a known state, so any prior command count mismatches are basically thrown away here (which is on purpose). this is supposed to be a blank slate
 
         Ok(())
     }

@@ -193,9 +193,10 @@ pub enum StartupReason {
     /// 
     /// Note that this is triggered if any chip at all is discovered as sleeping during a service cycle. It's technically possible that only one or two chips were sleeping, while
     /// the others were fine.
-    ///
-    /// WARNING: If your `on_startup` routine sends the SRST command, you must make sure that you clear the SLEEP flag, or else the Service will
-    /// keep detecting sleep as it runs and triggering infinite startup routines.
+    /// 
+    /// Important: It is the application's job to clear the SLEEP bit in this case. Otherwise, the Service will continue
+    /// reporting a detected SLEEP since it has not yet been acknowledged by the application. This can be done by just calling `.reset()` in
+    /// the on_startup routine.
     FromSleep,
     /// `on_startup` has been called because an isoSPI break was detected, so all chips are getting re-initialized.
     IsospiBreak,
@@ -559,8 +560,6 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
     async fn handle_sleep_detection(&self, api: &mut Api<SPI, N>) -> Result<SleepDetectionResult, Error<SPI::Error>> {
         use crate::chip::registers:: {
             status::StatusC,
-            clear::ClearFlags,
-            clear::types::ClearAction,
             status::types::c::SleepModeDetection,
         };
 
@@ -570,36 +569,19 @@ impl<MUTEX: RawMutex, SPI: SpiDevice, const N: usize> Service<MUTEX, SPI, N> {
             return Ok(SleepDetectionResult::SleepNotDetected);
         }
 
-        // Something is off, so wake the chain and take the observation we can trust.
+        // Something is off, so wake the chain and take a reading of the SLEEP bit
         api.wakeup().await?;
         statuses = api.read::<StatusC>().await;
 
-        let mut any_slept = false;
-        let mut clears = [ClearFlags::new(); N];
-
-        for (chip, response) in statuses.iter().enumerate() {
+        for response in statuses.iter() {
             let Some(response) = response else { continue };
             if response.pec().is_failed() { continue; }
-
             if response.data().sleep() == SleepModeDetection::SleepModeDetected {
-                any_slept = true;
-                api.chips[chip].reset_command_count(response.command_counter());
-                // Waking into standby also sets both rail UV flags so need to clear them alongside SLEEP or else it will look like undervoltage happened
-                clears[chip] = clears[chip]
-                    .with_cl_sleep(ClearAction::Clear)
-                    .with_cl_vauv(ClearAction::Clear)
-                    .with_cl_vduv(ClearAction::Clear);
+                return Ok(SleepDetectionResult::SleepDetected);
             }
         }
 
-        // Sleep resets every register to its default. so we need to put back what the application last asked for.
-        if any_slept {
-            // write the clears
-            api.write(&clears).await?;
-
-            Ok(SleepDetectionResult::SleepDetected)
-        } else {
-            Ok(SleepDetectionResult::SleepNotDetected)
-        }
+        // if we get here then no sleep was detected
+        Ok(SleepDetectionResult::SleepNotDetected)
     }
 }
